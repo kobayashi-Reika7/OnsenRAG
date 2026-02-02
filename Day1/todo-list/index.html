@@ -5,131 +5,125 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ToDoアプリ</title>
   <style>
-    /* 全体：1画面完結・スクロール最小限 */
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
     body {
       font-family: "Segoe UI", "Meiryo", sans-serif;
-      max-width: 480px;
+      max-width: 560px;
       margin: 0 auto;
       padding: 16px;
-      background: #f5f5f5;
+      background: #f0f0f0;
     }
     h1 {
       font-size: 1.25rem;
       margin: 0 0 16px 0;
       color: #333;
     }
-    section {
+    /* タスク入力フォーム */
+    .task-form {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .task-form input {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+    .task-form button {
+      padding: 10px 20px;
+      background: #4a90d9;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    .task-form button:hover { background: #357abd; }
+    /* タスクカード：縦に並べ、カードで区切る */
+    .task-list { list-style: none; margin: 0; padding: 0; }
+    .task-card {
       background: #fff;
       border-radius: 8px;
       padding: 16px;
       margin-bottom: 16px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
     }
-    section h2 {
-      font-size: 1rem;
-      margin: 0 0 12px 0;
-      color: #555;
-      border-bottom: 1px solid #eee;
-      padding-bottom: 8px;
-    }
-    /* ToDo：入力欄と追加ボタン */
-    .todo-form {
+    /* タスク行：チェックボックス・タイトル・編集・削除 */
+    .task-header {
       display: flex;
+      align-items: center;
       gap: 8px;
       margin-bottom: 12px;
     }
-    .todo-form input {
-      flex: 1;
-      padding: 8px 12px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-size: 1rem;
-    }
-    .todo-form button {
-      padding: 8px 16px;
-      background: #4a90d9;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
+    .task-header input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
       cursor: pointer;
-      font-size: 0.9rem;
     }
-    .todo-form button:hover {
-      background: #357abd;
-    }
-    /* ToDo一覧：各項目に削除ボタン */
-    .todo-list {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-    }
-    .todo-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 0;
-      border-bottom: 1px solid #eee;
-    }
-    .todo-item:last-child {
-      border-bottom: none;
-    }
-    .todo-item span {
+    .task-title {
       flex: 1;
+      font-size: 1rem;
+      border: none;
+      background: transparent;
+      padding: 4px 0;
     }
-    .todo-item button {
-      padding: 4px 12px;
-      background: #e0e0e0;
+    .task-title:focus { outline: none; }
+    .task-title.edit-mode {
+      border: 1px solid #4a90d9;
+      border-radius: 4px;
+      padding: 4px 8px;
+      background: #fff;
+    }
+    .task-card.completed .task-title:not(.edit-mode) {
+      color: #999;
+      text-decoration: line-through;
+    }
+    .task-header button {
+      padding: 4px 10px;
       border: none;
       border-radius: 4px;
       cursor: pointer;
       font-size: 0.85rem;
     }
-    .todo-item button:hover {
-      background: #d0d0d0;
-    }
-    /* タイマー：開始・停止ボタンと経過時間表示 */
-    .timer-controls {
+    .btn-edit { background: #e8e8e8; }
+    .btn-edit:hover { background: #d0d0d0; }
+    .btn-delete { background: #f0e0e0; color: #c33; }
+    .btn-delete:hover { background: #f0c0c0; }
+    /* タイマー行 */
+    .timer-row {
+      margin-bottom: 12px;
       display: flex;
+      align-items: center;
       gap: 8px;
-      margin-bottom: 8px;
+      flex-wrap: wrap;
     }
-    .timer-controls button {
-      padding: 8px 20px;
+    .timer-label { font-size: 0.9rem; color: #555; margin-right: 4px; }
+    .timer-display { font-size: 1.25rem; font-weight: bold; min-width: 52px; }
+    .timer-btns { display: flex; gap: 6px; }
+    .timer-btns button {
+      padding: 6px 14px;
       border: none;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 0.95rem;
+      font-size: 0.9rem;
     }
-    .timer-start {
-      background: #5cb85c;
-      color: #fff;
-    }
-    .timer-start:hover {
-      background: #4cae4c;
-    }
-    .timer-stop {
-      background: #d9534f;
-      color: #fff;
-    }
-    .timer-stop:hover {
-      background: #c9302c;
-    }
-    .timer-display {
-      font-size: 1.5rem;
-      font-weight: bold;
-      color: #333;
-    }
-    /* メモ帳：テキストエリア */
+    .timer-start { background: #5cb85c; color: #fff; }
+    .timer-start:hover { background: #4cae4c; }
+    .timer-stop { background: #d9534f; color: #fff; }
+    .timer-stop:hover { background: #c9302c; }
+    .timer-reset { background: #e0e0e0; }
+    .timer-reset:hover { background: #d0d0d0; }
+    /* メモ */
+    .memo-label { font-size: 0.9rem; color: #555; margin-bottom: 4px; display: block; }
     .memo-textarea {
       width: 100%;
-      min-height: 120px;
-      padding: 12px;
+      min-height: 80px;
+      padding: 10px;
       border: 1px solid #ccc;
       border-radius: 4px;
-      font-size: 1rem;
+      font-size: 0.95rem;
       font-family: inherit;
       resize: vertical;
     }
@@ -137,139 +131,308 @@
 </head>
 <body>
   <h1>ToDoアプリ</h1>
-
-  <!-- ToDoリスト -->
-  <section>
-    <h2>ToDoリスト</h2>
-    <div class="todo-form">
-      <input type="text" id="todoInput" placeholder="タスクを入力" maxlength="200">
-      <button type="button" id="addButton">追加</button>
-    </div>
-    <ul class="todo-list" id="todoList"></ul>
-  </section>
-
-  <!-- タイマー -->
-  <section>
-    <h2>タイマー</h2>
-    <div class="timer-controls">
-      <button type="button" id="timerStart" class="timer-start">開始</button>
-      <button type="button" id="timerStop" class="timer-stop">停止</button>
-    </div>
-    <p class="timer-display">経過時間：<span id="timerDisplay">00:00</span></p>
-  </section>
-
-  <!-- メモ帳 -->
-  <section>
-    <h2>メモ帳</h2>
-    <textarea class="memo-textarea" id="memoArea" placeholder="メモを入力"></textarea>
-  </section>
+  <div class="task-form">
+    <input type="text" id="taskInput" placeholder="タスクを入力" maxlength="200">
+    <button type="button" id="addButton">追加</button>
+  </div>
+  <ul class="task-list" id="taskList"></ul>
 
   <script>
-    // ===== ToDoリスト =====
-    // タスクを保持する配列（一時保存・リロードでリセット）
-    var taskList = [];
+    // ===== データ =====
+    // タスク一覧。各要素: { id, title, isCompleted, memo, elapsedSeconds }
+    // elapsedSeconds は表示用のみ（localStorage には保存しない）
+    var tasks = [];
+    var nextId = 1;
+    var STORAGE_KEY = "todo_app_tasks";
 
-    // タスク一覧を描画する
-    function renderTodoList() {
-      var listEl = document.getElementById("todoList");
-      listEl.innerHTML = "";
-      for (var i = 0; i < taskList.length; i++) {
-        var task = taskList[i];
-        var li = document.createElement("li");
-        li.className = "todo-item";
-        var span = document.createElement("span");
-        span.textContent = "・" + task;
-        var btn = document.createElement("button");
-        btn.textContent = "削除";
-        btn.type = "button";
-        (function (index) {
-          btn.addEventListener("click", function () {
-            removeTask(index);
-          });
-        })(i);
-        li.appendChild(span);
-        li.appendChild(btn);
-        listEl.appendChild(li);
-      }
-    }
-
-    // タスクを追加する
-    function addTask() {
-      var input = document.getElementById("todoInput");
-      var text = input.value.trim();
-      if (text === "") return;
-      taskList.push(text);
-      input.value = "";
-      renderTodoList();
-    }
-
-    // タスクを削除する（インデックス指定）
-    function removeTask(index) {
-      taskList.splice(index, 1);
-      renderTodoList();
-    }
-
-    // 追加ボタン・Enterで追加
-    document.getElementById("addButton").addEventListener("click", addTask);
-    document.getElementById("todoInput").addEventListener("keydown", function (e) {
-      if (e.key === "Enter") addTask();
-    });
-
-    // ===== タイマー =====
-    // 開始時刻・停止時の経過秒数・interval ID
+    // 現在動いているタイマーのタスクID（同時に1つだけ）
+    var runningTimerTaskId = null;
     var timerStartTime = null;
-    var timerStoppedElapsedSeconds = 0;
     var timerIntervalId = null;
 
-    // 経過秒数を MM:SS 形式で返す
+    // 経過秒数を mm:ss 形式で返す
     function formatElapsed(seconds) {
       var m = Math.floor(seconds / 60);
       var s = seconds % 60;
       return ("0" + m).slice(-2) + ":" + ("0" + s).slice(-2);
     }
 
-    // 経過時間表示を更新する（稼働中はリアルタイム、停止後は停止時点の値を表示）
-    function updateTimerDisplay() {
-      var displayEl = document.getElementById("timerDisplay");
-      if (timerStartTime !== null) {
-        var elapsed = Math.floor((Date.now() - timerStartTime) / 1000);
-        displayEl.textContent = formatElapsed(elapsed);
-      } else {
-        displayEl.textContent = formatElapsed(timerStoppedElapsedSeconds);
+    // localStorage から復元（完了状態・メモのみ。タイマー経過は含めない）
+    function loadTasks() {
+      try {
+        var json = localStorage.getItem(STORAGE_KEY);
+        if (json) {
+          var saved = JSON.parse(json);
+          tasks = saved.map(function (t) {
+            return {
+              id: t.id,
+              title: t.title,
+              isCompleted: t.isCompleted === true,
+              memo: t.memo || "",
+              elapsedSeconds: 0
+            };
+          });
+          var maxId = 0;
+          for (var i = 0; i < tasks.length; i++) {
+            if (tasks[i].id > maxId) maxId = tasks[i].id;
+          }
+          nextId = maxId + 1;
+        }
+      } catch (e) {
+        tasks = [];
       }
     }
 
-    // タイマー開始
-    function startTimer() {
-      if (timerIntervalId !== null) return;
-      timerStartTime = Date.now();
-      timerStoppedElapsedSeconds = 0;
-      updateTimerDisplay();
-      timerIntervalId = setInterval(updateTimerDisplay, 1000);
+    // localStorage に保存（id, title, isCompleted, memo のみ）
+    function saveTasks() {
+      var toSave = tasks.map(function (t) {
+        return { id: t.id, title: t.title, isCompleted: t.isCompleted, memo: t.memo };
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
     }
 
-    // タイマー停止（停止時点の経過時間を表示したままにする）
-    function stopTimer() {
+    // 指定タスクの経過表示を更新（稼働中は startTime 基準、停止中は elapsedSeconds）
+    function updateTaskTimerDisplay(taskId) {
+      var task = getTaskById(taskId);
+      if (!task) return;
+      var displayEl = document.getElementById("timer-display-" + taskId);
+      if (!displayEl) return;
+      var seconds;
+      if (runningTimerTaskId === taskId && timerStartTime !== null) {
+        seconds = task.elapsedSeconds + Math.floor((Date.now() - timerStartTime) / 1000);
+      } else {
+        seconds = task.elapsedSeconds;
+      }
+      displayEl.textContent = formatElapsed(seconds);
+    }
+
+    function getTaskById(id) {
+      for (var i = 0; i < tasks.length; i++) {
+        if (tasks[i].id === id) return tasks[i];
+      }
+      return null;
+    }
+
+    // 全タスクのタイマー表示を更新（interval 用）
+    function updateAllTimerDisplays() {
+      if (runningTimerTaskId !== null) {
+        updateTaskTimerDisplay(runningTimerTaskId);
+      }
+    }
+
+    // タイマーを止める（他タスクのタイマー開始時に呼ぶ）
+    function stopAnyRunningTimer() {
       if (timerIntervalId !== null) {
         clearInterval(timerIntervalId);
         timerIntervalId = null;
       }
-      if (timerStartTime !== null) {
-        timerStoppedElapsedSeconds = Math.floor((Date.now() - timerStartTime) / 1000);
+      if (runningTimerTaskId !== null && timerStartTime !== null) {
+        var task = getTaskById(runningTimerTaskId);
+        if (task) {
+          task.elapsedSeconds += Math.floor((Date.now() - timerStartTime) / 1000);
+        }
+        runningTimerTaskId = null;
         timerStartTime = null;
       }
-      updateTimerDisplay();
     }
 
-    document.getElementById("timerStart").addEventListener("click", startTimer);
-    document.getElementById("timerStop").addEventListener("click", stopTimer);
+    function startTimer(taskId) {
+      stopAnyRunningTimer();
+      var task = getTaskById(taskId);
+      if (!task) return;
+      runningTimerTaskId = taskId;
+      timerStartTime = Date.now();
+      updateTaskTimerDisplay(taskId);
+      timerIntervalId = setInterval(updateAllTimerDisplays, 1000);
+    }
 
-    // 初期表示
-    updateTimerDisplay();
+    function stopTimer(taskId) {
+      if (runningTimerTaskId !== taskId) return;
+      if (timerIntervalId !== null) {
+        clearInterval(timerIntervalId);
+        timerIntervalId = null;
+      }
+      var task = getTaskById(taskId);
+      if (task && timerStartTime !== null) {
+        task.elapsedSeconds += Math.floor((Date.now() - timerStartTime) / 1000);
+      }
+      runningTimerTaskId = null;
+      timerStartTime = null;
+      updateTaskTimerDisplay(taskId);
+    }
 
-    // ===== メモ帳 =====
-    // テキストエリアで入力・表示を兼ねる（リロードでリセット）
-    // 特に追加のJS処理は不要
+    function resetTimer(taskId) {
+      if (runningTimerTaskId === taskId) {
+        stopTimer(taskId);
+      }
+      var task = getTaskById(taskId);
+      if (task) {
+        task.elapsedSeconds = 0;
+        updateTaskTimerDisplay(taskId);
+      }
+    }
+
+    // ===== タスクの追加・削除・編集・完了 =====
+    function addTask() {
+      var input = document.getElementById("taskInput");
+      var title = input.value.trim();
+      if (title === "") return;
+      tasks.push({
+        id: nextId,
+        title: title,
+        isCompleted: false,
+        memo: "",
+        elapsedSeconds: 0
+      });
+      nextId += 1;
+      input.value = "";
+      saveTasks();
+      renderTasks();
+    }
+
+    function removeTask(taskId) {
+      if (runningTimerTaskId === taskId) stopAnyRunningTimer();
+      for (var i = 0; i < tasks.length; i++) {
+        if (tasks[i].id === taskId) {
+          tasks.splice(i, 1);
+          break;
+        }
+      }
+      saveTasks();
+      renderTasks();
+    }
+
+    function toggleCompleted(taskId) {
+      var task = getTaskById(taskId);
+      if (task) {
+        task.isCompleted = !task.isCompleted;
+        saveTasks();
+        renderTasks();
+      }
+    }
+
+    function setTaskTitle(taskId, newTitle) {
+      var task = getTaskById(taskId);
+      if (task) {
+        task.title = newTitle.trim() || task.title;
+        saveTasks();
+        renderTasks();
+      }
+    }
+
+    function setTaskMemo(taskId, memo) {
+      var task = getTaskById(taskId);
+      if (task) {
+        task.memo = memo;
+        saveTasks();
+      }
+    }
+
+    // ===== 描画 =====
+    function renderTasks() {
+      var listEl = document.getElementById("taskList");
+      listEl.innerHTML = "";
+      for (var i = 0; i < tasks.length; i++) {
+        var task = tasks[i];
+        var card = document.createElement("li");
+        card.className = "task-card" + (task.isCompleted ? " completed" : "");
+        card.dataset.taskId = task.id;
+
+        // ヘッダー：チェックボックス・タイトル・編集・削除
+        var header = document.createElement("div");
+        header.className = "task-header";
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = task.isCompleted;
+        cb.addEventListener("change", function (id) { return function () { toggleCompleted(id); }; }(task.id));
+        var titleSpan = document.createElement("span");
+        titleSpan.className = "task-title";
+        titleSpan.textContent = task.title;
+        titleSpan.contentEditable = "false";
+        var editBtn = document.createElement("button");
+        editBtn.className = "btn-edit";
+        editBtn.textContent = "編集";
+        editBtn.addEventListener("click", function (id, span) {
+          return function () {
+            if (span.classList.contains("edit-mode")) {
+              setTaskTitle(id, span.textContent);
+              span.classList.remove("edit-mode");
+              span.contentEditable = "false";
+            } else {
+              span.classList.add("edit-mode");
+              span.contentEditable = "true";
+              span.focus();
+              // フォーカスが外れたら保存して編集終了
+              function onBlur() {
+                setTaskTitle(id, span.textContent);
+                span.classList.remove("edit-mode");
+                span.contentEditable = "false";
+                span.removeEventListener("blur", onBlur);
+              }
+              span.addEventListener("blur", onBlur);
+            }
+          };
+        }(task.id, titleSpan));
+        var deleteBtn = document.createElement("button");
+        deleteBtn.className = "btn-delete";
+        deleteBtn.textContent = "削除";
+        deleteBtn.addEventListener("click", function (id) { return function () { removeTask(id); }; }(task.id));
+        header.appendChild(cb);
+        header.appendChild(titleSpan);
+        header.appendChild(editBtn);
+        header.appendChild(deleteBtn);
+        card.appendChild(header);
+
+        // タイマー
+        var timerRow = document.createElement("div");
+        timerRow.className = "timer-row";
+        timerRow.innerHTML = "<span class=\"timer-label\">タイマー：</span><span class=\"timer-display\" id=\"timer-display-" + task.id + "\">" + formatElapsed(task.elapsedSeconds) + "</span>";
+        var timerBtns = document.createElement("div");
+        timerBtns.className = "timer-btns";
+        var startBtn = document.createElement("button");
+        startBtn.className = "timer-start";
+        startBtn.textContent = "開始";
+        startBtn.addEventListener("click", function (id) { return function () { startTimer(id); }; }(task.id));
+        var stopBtn = document.createElement("button");
+        stopBtn.className = "timer-stop";
+        stopBtn.textContent = "停止";
+        stopBtn.addEventListener("click", function (id) { return function () { stopTimer(id); }; }(task.id));
+        var resetBtn = document.createElement("button");
+        resetBtn.className = "timer-reset";
+        resetBtn.textContent = "リセット";
+        resetBtn.addEventListener("click", function (id) { return function () { resetTimer(id); }; }(task.id));
+        timerBtns.appendChild(startBtn);
+        timerBtns.appendChild(stopBtn);
+        timerBtns.appendChild(resetBtn);
+        timerRow.appendChild(timerBtns);
+        card.appendChild(timerRow);
+
+        // メモ
+        var memoLabel = document.createElement("label");
+        memoLabel.className = "memo-label";
+        memoLabel.textContent = "メモ：";
+        var memoArea = document.createElement("textarea");
+        memoArea.className = "memo-textarea";
+        memoArea.placeholder = "メモを入力";
+        memoArea.value = task.memo;
+        memoArea.addEventListener("input", function (id) {
+          return function () { setTaskMemo(id, this.value); };
+        }(task.id));
+        card.appendChild(memoLabel);
+        card.appendChild(memoArea);
+
+        listEl.appendChild(card);
+      }
+    }
+
+    // ===== 初期化 =====
+    document.getElementById("addButton").addEventListener("click", addTask);
+    document.getElementById("taskInput").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") addTask();
+    });
+
+    loadTasks();
+    renderTasks();
   </script>
 </body>
 </html>
