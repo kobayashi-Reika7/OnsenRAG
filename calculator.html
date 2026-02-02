@@ -29,7 +29,7 @@
       border: 1px solid #e5e7eb;
     }
 
-    /* 表示欄：上部配置・右寄せ */
+    /* 表示欄：上部配置・右寄せ（改行を有効にするため pre-wrap） */
     .display {
       width: 100%;
       min-height: 3.5rem;
@@ -43,6 +43,8 @@
       box-sizing: border-box;
       font-variant-numeric: tabular-nums;
       border: 2px solid #374151;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
 
     /* ボタンエリア：4列×5行のCSS Grid */
@@ -187,6 +189,11 @@
       displayElement.textContent = displayExpression;
     }
 
+    // 計算結果が表示されているか（表示の末尾が「= 結果」の形式）
+    function isResultDisplayed() {
+      return / = -?[\d.]+$/.test(displayExpression);
+    }
+
     // 数値・小数点を入力
     function inputNumber(num) {
       if (displayExpression === 'Error') {
@@ -198,18 +205,17 @@
         return;
       }
 
-      // 「=」押下後の数値入力：新しい計算行として、前回の結果・演算子を用いて次の計算を開始
-      if (displayExpression.endsWith('=')) {
-        if (currentOperator === null) return; // 演算子が無い場合は何もしない
+      // 計算結果表示中の数値入力：改行し、新しい計算として入力を開始
+      if (isResultDisplayed()) {
+        if (currentOperator === null) return;
         if (num === '.') {
-          displayExpression = currentValue + ' ' + toDisplayOperator(currentOperator) + ' 0.';
+          displayExpression = displayExpression + '\n' + currentValue + ' ' + toDisplayOperator(currentOperator) + ' 0.';
           currentValue = '0.';
         } else {
-          displayExpression = currentValue + ' ' + toDisplayOperator(currentOperator) + ' ';
+          displayExpression = displayExpression + '\n' + currentValue + ' ' + toDisplayOperator(currentOperator) + ' ';
           currentValue = num === '0' ? '0' : num;
           displayExpression += currentValue;
         }
-        // previousValue は executeEquals で既に結果として設定済み
         updateDisplay();
         return;
       }
@@ -246,7 +252,7 @@
 
     // 符号反転（±）
     function toggleSign() {
-      if (displayExpression === 'Error' || displayExpression.endsWith('=')) return;
+      if (displayExpression === 'Error' || isResultDisplayed()) return;
 
       const num = parseFloat(currentValue);
       if (num === 0) return;
@@ -267,7 +273,7 @@
 
     // バックスペース（⌫）
     function backspace() {
-      if (displayExpression === 'Error' || displayExpression.endsWith('=')) return;
+      if (displayExpression === 'Error' || isResultDisplayed()) return;
 
       if (currentValue.length <= 1) {
         currentValue = '0';
@@ -283,7 +289,7 @@
 
     // パーセント（%）：現在の値を100で割る
     function inputPercent() {
-      if (displayExpression === 'Error' || displayExpression.endsWith('=')) return;
+      if (displayExpression === 'Error' || isResultDisplayed()) return;
 
       const num = parseFloat(currentValue) / 100;
       const newStr = num.toString();
@@ -299,10 +305,15 @@
     }
 
     function inputOperator(operator) {
-      if (displayExpression.endsWith('=')) {
-        displayExpression = currentValue;
+      if (isResultDisplayed()) {
+        displayExpression = displayExpression + '\n' + currentValue + ' ' + toDisplayOperator(operator) + ' ';
         previousValue = parseFloat(currentValue);
-      } else if (displayExpression === 'Error') {
+        currentOperator = operator;
+        currentValue = '0';
+        updateDisplay();
+        return;
+      }
+      if (displayExpression === 'Error') {
         return;
       }
 
