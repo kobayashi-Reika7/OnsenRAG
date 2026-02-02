@@ -1,101 +1,118 @@
-# ToDo List App - Requirements Definition
+# ToDoアプリ 要件定義書
 
-## 1. App Overview
+## 1. アプリ概要
 
-### App Name
-ToDo List App
+### アプリ名
+ToDoアプリ
 
-### Purpose
-Enable simple ToDo list management, time measurement, and memo recording quickly on a web browser.
+### 目的
+Webブラウザ上で、シンプルなToDoリスト管理・時間計測・メモ記録を素早く行えるようにする。
 
-### Target Users
-- General users who want simple task management
-- Beginner developers learning HTML / CSS / JavaScript
-
-## 2. Functional Requirements
-
-### Required Features
-
-#### 2.1 ToDo List
-- Add tasks
-- Delete tasks
-- Display tasks in a list
-- Content resets on page reload (temporary storage)
-
-#### 2.2 Timer
-- Start timer
-- Stop timer
-- Display elapsed time on screen
-- Measure time in seconds
-
-#### 2.3 Memo
-- Free text input
-- Display memo content on screen
-- Content resets on page reload
+### ターゲットユーザー
+- 簡単なタスク管理をしたい一般ユーザー
+- HTML / CSS / JavaScript を学習中の初心者開発者
 
 ---
 
-### Optional Features (if time permits)
-- Task completion checkbox
-- Timer reset
-- Simple memo persistence (localStorage)
+## 2. 機能要件
 
-## 3. Non-Functional Requirements
+### 必須機能
 
-### Performance
-- Screen updates immediately after button press
-- No unnecessary page reloads
+#### 2.1 ToDoリスト機能
+- タスクを追加できる
+- タスクを削除できる
+- タスクは一覧表示される
+- ページを再読み込みすると内容はリセットされる（一時保存）
 
-### Usability
-- Simple, intuitive screen layout
-- Clear labels for buttons and inputs
+#### 2.2 タイマー機能
+- タイマーの開始
+- タイマーの停止
+- 経過時間を画面に表示する
+- 秒単位で時間を計測する
 
-### Maintainability
-- Simple, readable JavaScript
-- Meaningful variable and function names
-- Structure understandable by beginners
-- Avoid putting all logic in a single file
-
----
-
-## 4. Screen Layout (UI)
-
-- Single-page layout
-- Minimize scrolling
+#### 2.3 メモ帳機能
+- テキストを自由に入力できる
+- メモ内容は画面上に表示される
+- ページを再読み込みすると内容はリセットされる
 
 ---
 
-## 5. Data
-
-### ToDo Data
-- Task content (string)
-- Managed temporarily in a JavaScript array
-
-### Timer Data
-- Start time
-- Elapsed time (seconds)
-
-### Memo Data
-- Memo content (string)
-- Display only (no persistence)
-
-All data is temporary.
+### 任意機能（余裕があれば実装）
+- タスクの完了チェック（チェックボックス）
+- タイマーのリセット機能
+- メモ内容の簡易保存（localStorage 使用）
 
 ---
 
-## 6. Constraints
+## 3. 非機能要件
 
-- Technology: HTML, CSS, JavaScript only
-- No frameworks or libraries
-- No server communication
-- Target: Web browser (e.g. Google Chrome)
+### パフォーマンス
+- ボタンを押してから**即座に画面が更新される**こと
+- 不要な再読み込みは行わない
+
+### 使いやすさ
+- 画面構成はシンプルで直感的に操作できる
+- ボタンや入力欄は役割が分かりやすい名称にする
+
+### 開発・保守性
+- JavaScriptのコードはシンプルで読みやすく記述する
+- 変数名・関数名は処理内容が分かる名前を使う
+- 初心者でも理解できる構造にする
+- 1ファイルに処理を詰め込みすぎない
 
 ---
 
-## 7. Out of Scope
+## 4. 画面構成（UIイメージ）
 
-- User authentication
-- Database storage
-- Multi-device sync
-- Advanced animations
-- Mobile-specific UI optimization
+| ToDoアプリ |
+| [ToDo入力欄] [追加] |
+| ・ToDo1 [削除] |
+| ・ToDo2 [削除] |
+| タイマー |
+| [開始] [停止] |
+| 経過時間：00:00 |
+| メモ帳 |
+| [テキストエリア] |
+
+- 1画面完結型
+- スクロールを最小限に抑える
+
+---
+
+## 5. 扱うデータ
+
+### ToDoデータ
+- タスク内容（文字列）
+- 一時的にJavaScriptの配列で管理
+
+### タイマーデータ
+- 開始時間
+- 経過時間（秒）
+
+### メモデータ
+- メモ内容（文字列）
+- 画面表示のみ（永続化しない）
+
+※すべて一時的なデータとする
+
+---
+
+## 6. 前提条件・制約
+
+- 使用技術は以下に限定する
+  - HTML
+  - CSS
+  - JavaScript
+- フレームワークやライブラリは使用しない
+- サーバー通信は行わない
+- Webブラウザ（Google Chrome想定）で動作する
+
+---
+
+## 7. スコープ外（今回やらないこと）
+
+- ユーザー認証機能
+- データベースへの保存
+- 複数デバイス間のデータ同期
+- デザインの高度なアニメーション
+- スマートフォン専用UIの最適化
