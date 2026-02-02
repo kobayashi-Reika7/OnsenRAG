@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>カウントダウンタイマー</title>
+  <style>
+    /* タイマー全体のレイアウト用 */
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #eee;
+    }
+    .timer-container {
+      text-align: center;
+      padding: 2rem;
+      border-radius: 1rem;
+      background: rgba(255, 255, 255, 0.05);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+    /* 残り時間の表示（大きく見やすく） */
+    .display {
+      font-size: 4rem;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.05em;
+      margin: 1rem 0;
+      min-width: 280px;
+    }
+    .display.finished {
+      color: #f39c12;
+    }
+    /* 分・秒入力とボタン群 */
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: center;
+      align-items: center;
+      margin-top: 1.5rem;
+    }
+    input[type="number"] {
+      width: 4rem;
+      padding: 0.5rem;
+      font-size: 1rem;
+      border: 1px solid #444;
+      border-radius: 6px;
+      background: #222;
+      color: #eee;
+      text-align: center;
+    }
+    label {
+      margin-right: 0.25rem;
+    }
+    button {
+      padding: 0.6rem 1.2rem;
+      font-size: 1rem;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-start {
+      background: #27ae60;
+      color: #fff;
+    }
+    .btn-start:hover:not(:disabled) {
+      background: #2ecc71;
+    }
+    .btn-pause {
+      background: #e67e22;
+      color: #fff;
+    }
+    .btn-pause:hover:not(:disabled) {
+      background: #f39c12;
+    }
+    .btn-reset {
+      background: #34495e;
+      color: #fff;
+    }
+    .btn-reset:hover:not(:disabled) {
+      background: #4a6278;
+    }
+    .message {
+      margin-top: 1rem;
+      font-size: 1.2rem;
+      min-height: 1.5em;
+    }
+  </style>
+</head>
+<body>
+  <div class="timer-container">
+    <h1>カウントダウンタイマー</h1>
+    <div class="display" id="display">00:00</div>
+    <p class="message" id="message"></p>
+    <div class="controls">
+      <label for="inputMinutes">分</label>
+      <input type="number" id="inputMinutes" min="0" max="99" value="1">
+      <label for="inputSeconds">秒</label>
+      <input type="number" id="inputSeconds" min="0" max="59" value="0">
+      <button class="btn-start" id="btnStart">開始</button>
+      <button class="btn-pause" id="btnPause" disabled>一時停止</button>
+      <button class="btn-reset" id="btnReset">リセット</button>
+    </div>
+  </div>
+
+  <script>
+    // --- タイマー用の変数（状態管理） ---
+    /** 残り秒数（内部では秒で保持し、表示時に MM:SS に変換する） */
+    let remainingSeconds = 0;
+    /** setInterval の ID。クリアするために保持する */
+    let timerIntervalId = null;
+    /** 一時停止中かどうか */
+    let isPaused = false;
+
+    // --- DOM 要素の参照（取得しておくと毎回 getElementById しなくてよい） ---
+    const displayEl = document.getElementById('display');
+    const messageEl = document.getElementById('message');
+    const inputMinutesEl = document.getElementById('inputMinutes');
+    const inputSecondsEl = document.getElementById('inputSeconds');
+    const btnStartEl = document.getElementById('btnStart');
+    const btnPauseEl = document.getElementById('btnPause');
+    const btnResetEl = document.getElementById('btnReset');
+
+    /**
+     * 秒数を MM:SS 形式の文字列に変換する
+     * @param {number} totalSeconds - 残り秒数（0以上）
+     * @returns {string} 例: "05:30"
+     */
+    function formatTime(totalSeconds) {
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return (
+        String(minutes).padStart(2, '0') + ':' +
+        String(seconds).padStart(2, '0')
+      );
+    }
+
+    /**
+     * 表示を更新する。残り秒数に応じてテキストとクラスを変える
+     */
+    function updateDisplay() {
+      displayEl.textContent = formatTime(remainingSeconds);
+      if (remainingSeconds <= 0) {
+        displayEl.classList.add('finished');
+      } else {
+        displayEl.classList.remove('finished');
+      }
+    }
+
+    /**
+     * 1秒ごとに呼ばれ、残り秒数を減らす。0になったらタイマーを止める
+     */
+    function tick() {
+      if (remainingSeconds <= 0) {
+        stopTimer();
+        messageEl.textContent = '時間です！';
+        return;
+      }
+      remainingSeconds -= 1;
+      updateDisplay();
+    }
+
+    /**
+     * setInterval を止め、ボタン状態を「停止時」に戻す
+     */
+    function stopTimer() {
+      if (timerIntervalId !== null) {
+        clearInterval(timerIntervalId);
+        timerIntervalId = null;
+      }
+      isPaused = false;
+      btnStartEl.disabled = false;
+      btnPauseEl.disabled = true;
+      btnPauseEl.textContent = '一時停止';
+    }
+
+    /**
+     * 入力欄から分・秒を読み、残り秒数をセットして表示を更新する
+     * 入力値は 0～99 分、0～59 秒に収める
+     */
+    function setTimeFromInput() {
+      const minutes = Math.max(0, Math.min(99, parseInt(inputMinutesEl.value, 10) || 0));
+      const seconds = Math.max(0, Math.min(59, parseInt(inputSecondsEl.value, 10) || 0));
+      remainingSeconds = minutes * 60 + seconds;
+      inputMinutesEl.value = minutes;
+      inputSecondsEl.value = seconds;
+      updateDisplay();
+    }
+
+    // --- 開始ボタン：入力から時間をセットし、カウントダウン開始 ---
+    btnStartEl.addEventListener('click', function () {
+      if (timerIntervalId !== null) return;
+      setTimeFromInput();
+      messageEl.textContent = '';
+      if (remainingSeconds <= 0) {
+        messageEl.textContent = '0より大きい時間を設定してください';
+        return;
+      }
+      displayEl.classList.remove('finished');
+      timerIntervalId = setInterval(tick, 1000);
+      btnStartEl.disabled = true;
+      btnPauseEl.disabled = false;
+      inputMinutesEl.disabled = true;
+      inputSecondsEl.disabled = true;
+    });
+
+    // --- 一時停止ボタン：停止と再開を切り替える ---
+    btnPauseEl.addEventListener('click', function () {
+      if (timerIntervalId === null) return;
+      if (isPaused) {
+        timerIntervalId = setInterval(tick, 1000);
+        btnPauseEl.textContent = '一時停止';
+        isPaused = false;
+      } else {
+        clearInterval(timerIntervalId);
+        timerIntervalId = null;
+        btnPauseEl.textContent = '再開';
+        isPaused = true;
+      }
+    });
+
+    // --- リセットボタン：タイマーを止めて入力の値に戻す ---
+    btnResetEl.addEventListener('click', function () {
+      stopTimer();
+      setTimeFromInput();
+      messageEl.textContent = '';
+      inputMinutesEl.disabled = false;
+      inputSecondsEl.disabled = false;
+    });
+
+    // 初期表示（分1・秒0 = 00:00 ではなく 01:00 にしたい場合は value を 1 にしているので setTimeFromInput で 60 秒になる）
+    setTimeFromInput();
+  </script>
+</body>
+</html>
