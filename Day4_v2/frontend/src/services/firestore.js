@@ -1,8 +1,10 @@
 /**
- * Firestore 関数（Create + Realtime Read）
+ * Firestore 処理（Create + Realtime Read）
  *
- * - addTodoToDB: async/await で追加
- * - subscribeTodos: onSnapshot でリアルタイム監視
+ * 【データの永続化】
+ * - 追加した ToDo は Firestore（クラウドDB）に保存される
+ * - リロード・タブを閉じてもデータは消えない
+ * - 次にページを開いたとき、subscribeTodos が Firestore から取得して表示する
  */
 import {
   collection,
@@ -37,17 +39,19 @@ export async function addTodoToDB(title) {
 /**
  * Realtime Read: todos コレクションをリアルタイム監視
  *
- * onSnapshot を使用。データが変更されるたびに callback が呼ばれる。
- * リロード不要で即座に画面が更新される。
+ * 【onSnapshot の仕組み】
+ * - Firestore に「このコレクションを監視して」と登録する
+ * - 初回: 即座に現在のデータを callback に渡す（ページ表示時に Firestore から取得）
+ * - 以降: 誰かが追加・変更・削除するたびに、自動で callback が呼ばれる
+ * - 同じアプリを別タブで開いている場合も、そのタブの callback が呼ばれる
+ * → 「別タブで追加 → 即反映」が実現する
  *
- * 【なぜ onSnapshot に await が不要か】
- * - onSnapshot は「リスナー登録」を行う関数で、Promise を返さない
- * - コールバック関数が、初回とデータ変更のたびに非同期で呼ばれる
- * - await する対象（Promise）が存在しないため、await は不要
- * - 代わりに、戻り値の unsubscribe 関数で監視を解除する（useEffect の cleanup で使用）
+ * 【なぜ await が不要か】
+ * onSnapshot は Promise を返さず、同期的に unsubscribe 関数を返す。
+ * データ取得はコールバックで非同期に届くため、await する対象がない。
  *
- * @param {function(todos: Array<{id: string, title: string, createdAt: Date}>): void} callback - データ取得時に呼ばれる
- * @returns {function} unsubscribe - 呼ぶと監視を解除（useEffect の return で使用）
+ * @param {function(todos: Array<{id, title, createdAt}>): void} callback
+ * @returns {function} unsubscribe - useEffect の cleanup で呼ぶ
  */
 export function subscribeTodos(callback) {
   const todosRef = collection(db, COLLECTION_NAME);

@@ -1,12 +1,12 @@
 /**
  * Firebase 接続設定
  *
- * - initializeApp で Firebase アプリを初期化
- * - getFirestore で Firestore インスタンスを取得
- * - 設定値は import.meta.env から取得（.env に書いた値を参照）
+ * - initializeApp: Firebase アプリを初期化
+ * - getFirestore: Firestore インスタンスを取得（クラウドDB への接続）
+ * - 設定値は import.meta.env から取得
  *
- * 【重要】import.meta.env で読み取れる変数は
- * VITE_ で始まるものだけです（Vite の仕様）
+ * この db を使って、ToDo を Firestore に保存・取得する。
+ * データは Google のサーバーに永続化され、リロード・タブを閉じても消えない。
  */
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
