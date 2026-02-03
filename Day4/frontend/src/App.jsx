@@ -12,6 +12,12 @@
  * 流れ: 初回読み込み → getTodos() で Firestore から取得 → setTasks で state に反映
  *       追加 → addTodo() で Firestore に保存 → getTodos() で再取得して state 更新
  *       削除 → deleteTodo() で Firestore から削除 → getTodos() で再取得して state 更新
+ *
+ * 【表示ズレの原因（Firestore 対応後に起きていたこと）】
+ * 1. 並び順: getTodos() は orderBy なしで取得するため、Firestore の返却順は保証されない。
+ *    ローカル版は「新規が先頭」だったが、クラウドでは並びが毎回変わりうる。
+ * 2. 表示タイミング: 追加後に setInputValue('') を先に実行していたため、
+ *    一覧の再取得（loadTodos）が終わる前に入力欄だけ空になり、一瞬「リストと入力がズレた」状態になっていた。
  */
 import React, { useState, useEffect } from 'react';
 import { addTodo, getTodos, deleteTodo } from './services/firestore';
@@ -23,12 +29,21 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // 初回マウント時と、追加・削除後に Firestore から一覧を取得する
+  /**
+   * Firestore から一覧を取得し、state を更新する。
+   * 並び順を安定させるため、取得後に createdAt の新しい順でソートしてから setTasks する。
+   */
   const loadTodos = async () => {
     try {
       setError(null);
       const list = await getTodos();
-      setTasks(list);
+      // 並び順を安定させる: createdAt の新しい順（ローカル版と同じ「新規が上」）
+      const sorted = [...list].sort((a, b) => {
+        const tA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ?? 0);
+        const tB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ?? 0);
+        return tB - tA;
+      });
+      setTasks(sorted);
     } catch (e) {
       setError('タスクの取得に失敗しました: ' + e.message);
     } finally {
@@ -48,8 +63,9 @@ function App() {
     try {
       setError(null);
       await addTodo(title);
-      setInputValue('');
       await loadTodos();
+      // 一覧の更新が完了してから入力欄を空にする（表示タイミングのズレを防ぐ）
+      setInputValue('');
     } catch (e) {
       setError('タスクの追加に失敗しました: ' + e.message);
     }
