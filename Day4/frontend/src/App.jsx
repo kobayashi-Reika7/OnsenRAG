@@ -2,10 +2,10 @@
  * App: 全体の状態保持と Firestore 連携
  * VERIFICATION.md の確認項目（タスク追加・完了・編集・リスト・リロード等）に沿った構成
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  getLists,
-  getTasks,
+  subscribeLists,
+  subscribeTasks,
   addTask,
   updateTask,
   deleteTask,
@@ -18,7 +18,6 @@ import {
   PROMPT_NEW_LIST_NAME,
   ALERT_CANNOT_DELETE_DEFAULT_LIST,
   CONFIRM_DELETE_LIST,
-  ERROR_LOAD_FAILED,
   ERROR_LIST_NOT_READY,
   ERROR_TASKS_FETCH,
   ERROR_TASKS_ADD,
@@ -41,54 +40,40 @@ function App() {
 
   const defaultListId = lists.find((l) => l.name === DEFAULT_LIST_NAME)?.id ?? lists[0]?.id ?? '';
 
-  const loadTasks = useCallback(
-    (defaultListIdParam) => {
-      const fallback = defaultListIdParam ?? defaultListId;
-      setError(null);
-      return getTasks(fallback)
-        .then((list) => setTasks(sortTasksByCreatedAt(list)))
-        .catch((e) => setError(ERROR_TASKS_FETCH + ': ' + e.message));
-    },
-    [defaultListId]
-  );
-
-  const loadLists = useCallback(() => {
-    setError(null);
-    return getLists()
-      .then((data) => {
-        setLists(data);
-        return data;
-      })
-      .catch((e) => {
-        setError(ERROR_LISTS_FETCH + ': ' + e.message);
-        return [];
-      });
-  }, []);
-
-  // 初回: リスト・タスクを取得。VERIFICATION「初回表示でマイリストが1件ある」を満たすため、
-  // リストが0件または「マイリスト」が無い場合は自動作成し、先頭に置く
+  // 初回 + リアルタイム: onSnapshot でリスト・タスクを監視
+  // リロード後も Firestore から確実に取得。orderBy 未使用でインデックス不要
   useEffect(() => {
     setError(null);
-    getLists()
-      .then((listData) => {
+    const unsubLists = subscribeLists(
+      (listData) => {
         if (!Array.isArray(listData)) listData = [];
         const hasDefaultList = listData.some((l) => l.name === DEFAULT_LIST_NAME);
         if (listData.length === 0 || !hasDefaultList) {
-          return addList(DEFAULT_LIST_NAME).then((created) => {
+          addList(DEFAULT_LIST_NAME).then((created) => {
             const defaultEntry = { id: created.id, name: created.name };
-            return listData.length === 0 ? [defaultEntry] : [defaultEntry, ...listData];
+            const next = listData.length === 0 ? [defaultEntry] : [defaultEntry, ...listData];
+            setLists(next);
+            setCurrentListId(next[0]?.id ?? '');
           });
+          return;
         }
-        return listData;
-      })
-      .then((listData) => {
         setLists(listData);
-        const firstId = listData[0]?.id ?? '';
-        setCurrentListId(firstId);
-        return getTasks(firstId);
-      })
-      .then((taskList) => setTasks(sortTasksByCreatedAt(taskList)))
-      .catch((e) => setError(ERROR_LOAD_FAILED + ': ' + e.message));
+        setCurrentListId((prev) => prev || (listData[0]?.id ?? ''));
+      },
+      (e) => setError(ERROR_LISTS_FETCH + ': ' + e.message)
+    );
+    const unsubTasks = subscribeTasks(
+      '',
+      (taskList) => {
+        setError(null);
+        setTasks(sortTasksByCreatedAt(taskList));
+      },
+      (e) => setError(ERROR_TASKS_FETCH + ': ' + e.message)
+    );
+    return () => {
+      unsubLists();
+      unsubTasks();
+    };
   }, []);
 
   const handleAddTask = (title) => {
@@ -106,25 +91,20 @@ function App() {
       due_date: null,
       memo: '',
       time: 0,
-    })
-      .then(() => loadTasks(listId))
-      .catch((e) => setError(ERROR_TASKS_ADD + ': ' + e.message));
+    }).catch((e) => setError(ERROR_TASKS_ADD + ': ' + e.message));
+    // onSnapshot が変更を検知して自動で setTasks するため loadTasks 不要
   };
 
   const handleUpdateTask = (id, data) => {
-    const listId = currentListId || defaultListId;
     setError(null);
-    updateTask(id, data)
-      .then(() => loadTasks(listId))
-      .catch((e) => setError(ERROR_TASKS_UPDATE + ': ' + e.message));
+    updateTask(id, data).catch((e) => setError(ERROR_TASKS_UPDATE + ': ' + e.message));
+    // onSnapshot が変更を検知して自動で setTasks するため loadTasks 不要
   };
 
   const handleDeleteTask = (id) => {
-    const listId = currentListId || defaultListId;
     setError(null);
-    deleteTask(id)
-      .then(() => loadTasks(listId))
-      .catch((e) => setError(ERROR_TASKS_DELETE + ': ' + e.message));
+    deleteTask(id).catch((e) => setError(ERROR_TASKS_DELETE + ': ' + e.message));
+    // onSnapshot が変更を検知して自動で setTasks するため loadTasks 不要
   };
 
   const handleAddList = () => {
@@ -132,8 +112,9 @@ function App() {
     if (!name?.trim()) return;
     setError(null);
     addList(name.trim())
-      .then((created) => loadLists().then(() => setCurrentListId(created.id)))
+      .then((created) => setCurrentListId(created.id))
       .catch((e) => setError(ERROR_LISTS_ADD + ': ' + e.message));
+    // onSnapshot が変更を検知して自動で setLists するため loadLists 不要
   };
 
   const handleDeleteList = () => {
@@ -144,10 +125,9 @@ function App() {
     if (!window.confirm(CONFIRM_DELETE_LIST)) return;
     setError(null);
     deleteList(currentListId, defaultListId)
-      .then(() => loadLists())
-      .then(() => loadTasks(defaultListId))
       .then(() => setCurrentListId(defaultListId))
       .catch((e) => setError(ERROR_LISTS_DELETE + ': ' + e.message));
+    // onSnapshot が変更を検知して自動で setLists / setTasks するため loadLists / loadTasks 不要
   };
 
   const counts = computeCounts(tasks);
