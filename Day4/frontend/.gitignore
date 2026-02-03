@@ -1,0 +1,9 @@
+# 依存
+node_modules/
+
+# ビルド成果物
+dist/
+
+# 環境変数（Firebase の API キー等をコミットしない）
+.env
+.env.local
