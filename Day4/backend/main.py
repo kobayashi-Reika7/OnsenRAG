@@ -1,8 +1,10 @@
 """
 FastAPI バックエンド - ToDo API
-CORS を許可し、タスク・リストの CRUD を提供する
+CORS を許可し、タスク・リストの CRUD を提供する（クラウド対応）
 """
 from __future__ import annotations
+
+import os
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,16 +12,32 @@ from fastapi.middleware.cors import CORSMiddleware
 from models import TaskCreate, TaskUpdate, TaskResponse, ListCreate, ListResponse
 import store
 
+# 環境変数（クラウドデプロイ用）
+# ALLOWED_ORIGINS: カンマ区切り（例: https://myapp.vercel.app,https://myapp.netlify.app）
+# PORT: サーバー待ち受けポート（デフォルト 8000）
+_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
+ALLOWED_ORIGINS = (
+    [o.strip() for o in _origins_env.split(",") if o.strip()]
+    if _origins_env
+    else ["http://localhost:5173", "http://127.0.0.1:5173"]
+)
+
 app = FastAPI(title="ToDo API", version="1.0")
 
-# CORS: フロント（Vite の localhost:5173）からアクセスできるようにする
+# CORS: 環境変数で指定したオリジン、またはローカル開発用を許可
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health")
+def health():
+    """ヘルスチェック（ロードバランサ・コンテナオーケストレーション用）"""
+    return {"status": "ok"}
 
 
 # ===== タスク API =====

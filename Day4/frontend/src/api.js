@@ -1,9 +1,16 @@
 /**
  * バックエンド（FastAPI）への fetch 呼び出し
- * ベースURL: 開発時は localhost:8000
+ * クラウド対応: VITE_API_BASE で本番 API URL を指定（ビルド時に埋め込まれる）
  */
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
+/**
+ * バックエンド API への共通リクエスト処理
+ * @param {string} path - エンドポイントパス（例: '/tasks', '/lists'）
+ * @param {RequestInit} [options] - fetch のオプション（method, body など）
+ * @returns {Promise<object|void>} レスポンス JSON。204 の場合は undefined
+ * @throws {Error} res.ok が false のとき（detail または statusText をメッセージに含む）
+ */
 async function request(path, options = {}) {
   const url = `${API_BASE}${path}`;
   const res = await fetch(url, {

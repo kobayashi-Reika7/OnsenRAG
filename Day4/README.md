@@ -90,6 +90,10 @@ Day4/frontend/
 2. **追加**: フォーム送信 → `addTodo(title)` で Firestore に保存 → `getTodos()` で再取得 → state 更新。
 3. **削除**: 削除ボタン → `deleteTodo(id)` で Firestore から削除 → `getTodos()` で再取得 → state 更新。
 
+## クラウドデプロイ
+
+フロントを Vercel / Netlify へ、バックエンド（任意）を Railway / Render などへデプロイする手順は **`docs/DEPLOYMENT.md`** を参照してください。環境変数（CORS・API ベース URL など）の設定も記載しています。
+
 ---
 
 Day3 由来の `backend/` や `docs/DESIGN.md` は参考用として残しています。Day4 の動作には **フロントエンドのみ**（Firestore 接続）が必要です。
