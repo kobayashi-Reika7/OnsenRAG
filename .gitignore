@@ -1,3 +1,6 @@
 # Day4_v2 は Day4 に統合済み。残存フォルダを無視
 Day4_v2/
 
+# 別リポジトリのクローン（Day5 は subtree push で Reservation-Calendar に反映）
+Reservation-Calendar/
+
