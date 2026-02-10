@@ -3,3 +3,7 @@ __pycache__/
 .env
 .venv/
 venv/
+
+# Firebase サービスアカウント（シークレット）
+*-firebase-adminsdk-*.json
+serviceAccountKey.json

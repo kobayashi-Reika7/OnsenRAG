@@ -7,6 +7,12 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# backend/.env を読み込み（GOOGLE_CLOUD_PROJECT 等の環境変数を設定）
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from fastapi import FastAPI, HTTPException, Header
 

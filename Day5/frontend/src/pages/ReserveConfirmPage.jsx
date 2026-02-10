@@ -28,11 +28,13 @@ function ReserveConfirmPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [errorStatus, setErrorStatus] = useState(null); // 401 時に「ログイン画面へ」表示用
   const [done, setDone] = useState(false);
 
-  const handleConfirm = async () => {
+  const handleConfirm = async (isRetry = false) => {
     if (!user?.uid || !selectedDate || !time || !department) {
       setError('ご予約内容が不足しています。最初からやり直してください。');
+      setErrorStatus(null);
       return;
     }
     const payload = {
@@ -40,11 +42,11 @@ function ReserveConfirmPage() {
       date: selectedDate,
       time,
     };
-    // 調査用: 確定時のペイロード（本番では削除可）
     if (typeof console !== 'undefined' && console.log) {
       console.log('confirm payload', payload);
     }
     setError('');
+    setErrorStatus(null);
     setLoading(true);
     try {
       if (isEditing && editingReservationId) {
@@ -54,12 +56,12 @@ function ReserveConfirmPage() {
       const idToken = await user.getIdToken(true);
       if (!idToken?.trim()) {
         setError('認証情報が取得できませんでした。再ログインしてください。');
+        setErrorStatus(401);
         return;
       }
       await createReservationApi(idToken, payload);
       setDone(true);
     } catch (err) {
-      // 401 時は API が返す「再ログイン」メッセージをそのまま表示
       if (typeof console !== 'undefined' && console.error) {
         console.error('[予約確定エラー]', {
           status: err?.status,
@@ -67,7 +69,28 @@ function ReserveConfirmPage() {
           message: err?.message,
         }, err);
       }
-      setError(err?.status === 401 ? (err?.message || 'セッションが切れました。再ログインしてください。') : 'ご予約を確定できませんでした。お手数ですが、もう一度お試しください。');
+      const is401 = err?.status === 401;
+      setErrorStatus(is401 ? 401 : null);
+      // 401 かつまだリトライしていない場合、トークン再取得して1回だけリトライ
+      if (is401 && !isRetry) {
+        try {
+          const freshToken = await user.getIdToken(true);
+          if (freshToken?.trim()) {
+            await createReservationApi(freshToken, payload);
+            setDone(true);
+            return;
+          }
+        } catch (retryErr) {
+          if (typeof console !== 'undefined' && console.error) {
+            console.error('[予約確定リトライエラー]', retryErr);
+          }
+        }
+      }
+      setError(
+        is401
+          ? (err?.message || 'セッションが切れました。再ログインしてください。')
+          : 'ご予約を確定できませんでした。お手数ですが、もう一度お試しください。'
+      );
     } finally {
       setLoading(false);
     }
@@ -157,6 +180,17 @@ function ReserveConfirmPage() {
       {error && (
         <div className="confirm-error-wrap" role="alert">
           <p className="page-error page-error-friendly">{error}</p>
+          {errorStatus === 401 && (
+            <div className="btn-wrap-center" style={{ marginTop: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-nav"
+                onClick={() => navigate('/login', { replace: true })}
+              >
+                ログイン画面へ
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -170,7 +204,7 @@ function ReserveConfirmPage() {
         <button
           type="button"
           className="btn btn-primary"
-          onClick={handleConfirm}
+          onClick={() => handleConfirm(false)}
           disabled={loading}
           aria-busy={loading}
         >
