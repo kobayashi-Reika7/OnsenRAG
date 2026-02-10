@@ -9,7 +9,6 @@ import ReservationStepHeader from '../components/ReservationStepHeader';
 import { TextField } from '../components/InputForm';
 import { syncMe } from '../services/backend';
 import { signup } from '../services/auth';
-import appHero from '../assets/app-hero.svg';
 
 function SignupPage() {
   const navigate = useNavigate();

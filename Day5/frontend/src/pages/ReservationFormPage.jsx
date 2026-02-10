@@ -3,14 +3,14 @@
  * 週表示（月〜金固定・5列）。祝日はバックエンドの isHoliday/reason のみで表示（フロントで祝日判定しない）。
  * 状態: selectedDate（ユーザー選択日）, weekStartDate（表示週の月曜・必ず月曜）。
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../App';
 import Breadcrumb from '../components/Breadcrumb';
 import ReservationStepHeader from '../components/ReservationStepHeader';
 import Calendar from '../components/Calendar';
 import { CATEGORIES, DEPARTMENTS_BY_CATEGORY } from '../constants/masterData';
 import { getDepartmentAvailabilityForDate } from '../services/availability';
-import appHero from '../assets/app-hero.svg';
 
 const HOSPITAL_NAME = 'さくら総合病院';
 const TYPES = ['初診', '再診'];
@@ -63,9 +63,52 @@ function getMinWeekStartDate() {
   return getMonday(getToday());
 }
 
+/** カレンダーモーダル（Escape/バックドロップクリック対応） */
+const EMPTY_SET = new Set();
+function CalendarModal({ weekStartDate, calendarSelectedDate, onSelect, onClose }) {
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    const handleKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKeyDown);
+    // フォーカスをダイアログ内に移動
+    const first = dialogRef.current?.querySelector('button');
+    if (first) first.focus();
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+  const handleOverlayClick = (e) => {
+    if (e.target === e.currentTarget) onClose();
+  };
+  return (
+    <div
+      className="reservation-form-calendar-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="予約日を選択"
+      onClick={handleOverlayClick}
+    >
+      <div className="reservation-form-calendar-wrap" ref={dialogRef}>
+        <Calendar
+          key={`${weekStartDate.getFullYear()}-${weekStartDate.getMonth()}`}
+          selectedDate={calendarSelectedDate}
+          onSelectDate={onSelect}
+          reservedDates={EMPTY_SET}
+        />
+        <button
+          type="button"
+          className="btn btn-secondary reservation-form-calendar-close"
+          onClick={onClose}
+        >
+          閉じる
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ReservationFormPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const user = useAuth();
 
   const editingReservation = location.state?.editingReservation ?? null;
   const editingReservationId = location.state?.editingReservationId ?? null;
@@ -81,8 +124,16 @@ export default function ReservationFormPage() {
   const [selectedDate, setSelectedDate] = useState(dateInitial);
   const [selectedTime, setSelectedTime] = useState(timeInitial);
 
-  const today = useMemo(() => getToday(), []);
-  const minWeekStartDate = useMemo(() => getMinWeekStartDate(), []);
+  // 日付跨ぎ対応: todayを定期更新して過去日判定が正しく動作するようにする
+  const [today, setToday] = useState(() => getToday());
+  useEffect(() => {
+    const id = setInterval(() => {
+      const newToday = getToday();
+      setToday((prev) => (prev.getTime() !== newToday.getTime() ? newToday : prev));
+    }, 60000); // 1分ごとにチェック
+    return () => clearInterval(id);
+  }, []);
+  const minWeekStartDate = useMemo(() => getMinWeekStartDate(), [today]);
   const maxWeekStartDate = useMemo(() => addDays(today, MAX_DAYS_AHEAD - 4), [today]);
 
   const [weekStartDate, setWeekStartDate] = useState(() => {
@@ -158,30 +209,41 @@ export default function ReservationFormPage() {
     let completed = 0;
     const total = dates.length;
 
-    dates.forEach((dateStr) => {
-      getDepartmentAvailabilityForDate(department, dateStr)
-        .then((r) => {
-          if (canceled) return;
-          const row = {
-            dateStr,
-            timeSlots: r.timeSlots ?? [],
-            availableDoctorByTime: r.availableDoctorByTime ?? {},
-            isHoliday: Boolean(r.isHoliday),
-            reason: r.reason ?? null,
-          };
-          setAvailByDate((prev) => ({ ...prev, [dateStr]: row }));
-        })
-        .catch(() => {
-          if (!canceled) setError('空き状況の取得に一時失敗しました。しばらくしてから再度お試しください。');
-        })
-        .finally(() => {
-          completed += 1;
-          if (completed >= total && !canceled) setLoading(false);
-        });
-    });
+    // ユーザーの認証トークンを取得（予約済み枠を×表示するため）
+    const fetchWithToken = async () => {
+      let idToken = '';
+      try {
+        idToken = (await user?.getIdToken()) || '';
+      } catch {
+        // トークン取得失敗時はトークンなしで取得（ユーザー予約チェックなし）
+      }
+
+      dates.forEach((dateStr) => {
+        getDepartmentAvailabilityForDate(department, dateStr, idToken)
+          .then((r) => {
+            if (canceled) return;
+            const row = {
+              dateStr,
+              timeSlots: r.timeSlots ?? [],
+              availableDoctorByTime: r.availableDoctorByTime ?? {},
+              isHoliday: Boolean(r.isHoliday),
+              reason: r.reason ?? null,
+            };
+            setAvailByDate((prev) => ({ ...prev, [dateStr]: row }));
+          })
+          .catch(() => {
+            if (!canceled) setError('空き状況の取得に一時失敗しました。しばらくしてから再度お試しください。');
+          })
+          .finally(() => {
+            completed += 1;
+            if (completed >= total && !canceled) setLoading(false);
+          });
+      });
+    };
+    fetchWithToken();
 
     return () => { canceled = true; };
-  }, [department, weekStartDate, weekDates]);
+  }, [department, weekStartDate, weekDates, user]);
 
   const timeSlots = useMemo(() => {
     const first = weekDates[0] ? toDateStr(weekDates[0]) : '';
@@ -467,28 +529,12 @@ export default function ReservationFormPage() {
       </main>
 
       {calendarOpen && (
-        <div
-          className="reservation-form-calendar-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label="予約日を選択"
-        >
-          <div className="reservation-form-calendar-wrap">
-            <Calendar
-              key={`${weekStartDate.getFullYear()}-${weekStartDate.getMonth()}`}
-              selectedDate={calendarSelectedDate}
-              onSelectDate={handleCalendarSelect}
-              reservedDates={new Set()}
-            />
-            <button
-              type="button"
-              className="btn btn-secondary reservation-form-calendar-close"
-              onClick={() => setCalendarOpen(false)}
-            >
-              閉じる
-            </button>
-          </div>
-        </div>
+        <CalendarModal
+          weekStartDate={weekStartDate}
+          calendarSelectedDate={calendarSelectedDate}
+          onSelect={handleCalendarSelect}
+          onClose={() => setCalendarOpen(false)}
+        />
       )}
     </div>
   );

@@ -93,9 +93,9 @@ export async function getSlots(department, date, idToken) {
       try {
         const check = await fetch(`${baseUrl}/api`, { method: 'GET' });
         if (check.status === 404) {
-          console.warn(
-            '[Day5] バックエンドに接続できません。Day5 のバックエンド（Day5/backend/run.bat）がポート 8002 で起動しているか確認してください。'
-          );
+          if (import.meta.env.DEV) {
+            console.warn('[Day5] バックエンドに接続できません。Day5/backend/run.bat がポート 8002 で起動しているか確認してください。');
+          }
         }
       } catch (_) {}
     }
@@ -212,6 +212,7 @@ export async function createReservationApi(idToken, body) {
     department: body.department ?? '',
     date: body.date ?? '',
     time: body.time ?? '',
+    purpose: body.purpose ?? '',
   };
   const res = await fetch(url, {
     method: 'POST',
@@ -227,10 +228,54 @@ export async function createReservationApi(idToken, body) {
         : res.status >= 500
           ? 'サーバーでエラーが発生しました。しばらくしてから再度お試しください。'
           : '予約を確定できませんでした。入力内容を確認してもう一度お試しください。';
-    if (typeof console !== 'undefined' && console.error) {
+    if (import.meta.env.DEV) {
       console.error('[createReservationApi]', {
         status: res.status,
         statusText: res.statusText,
+        detail: data.detail,
+        url,
+      });
+    }
+    const err = new Error(userMsg);
+    err.status = res.status;
+    err.detail = data.detail;
+    throw err;
+  }
+  return data;
+}
+
+/**
+ * 予約をキャンセルする。認証必須。
+ * booked_slots も同時に解放されるため、ダブルブッキングを防止できる。
+ * @param {string} idToken - Firebase ID トークン（必須）
+ * @param {string} reservationId - 予約ドキュメントID
+ * @returns {Promise<{ ok: boolean, id: string }>}
+ */
+export async function cancelReservationApi(idToken, reservationId) {
+  if (!idToken || typeof idToken !== 'string' || !idToken.trim()) {
+    const err = new Error('認証情報がありません。再ログインしてください。');
+    err.status = 401;
+    throw err;
+  }
+  if (!reservationId) {
+    throw new Error('予約IDが不正です。');
+  }
+  const url = `${getBaseUrl()}/api/reservations/${encodeURIComponent(reservationId)}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: authHeaders(idToken),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const userMsg =
+      res.status === 401
+        ? 'セッションが切れました。再ログインしてください。'
+        : res.status >= 500
+          ? 'サーバーでエラーが発生しました。しばらくしてから再度お試しください。'
+          : data.detail ?? '予約のキャンセルに失敗しました。';
+    if (import.meta.env.DEV) {
+      console.error('[cancelReservationApi]', {
+        status: res.status,
         detail: data.detail,
         url,
       });

@@ -8,8 +8,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../App';
 import Breadcrumb from '../components/Breadcrumb';
 import ReservationStepHeader from '../components/ReservationStepHeader';
-import { createReservationApi, invalidateSlotsCache } from '../services/backend';
-import { deleteReservation } from '../services/reservation';
+import { createReservationApi, cancelReservationApi, invalidateSlotsCache } from '../services/backend';
+import { invalidateAvailabilityCache } from '../services/availability';
 
 function ReserveConfirmPage() {
   const navigate = useNavigate();
@@ -41,17 +41,15 @@ function ReserveConfirmPage() {
       department: department ?? '',
       date: selectedDate,
       time,
+      purpose: purpose ?? '',
     };
-    if (typeof console !== 'undefined' && console.log) {
+    if (import.meta.env.DEV) {
       console.log('confirm payload', payload);
     }
     setError('');
     setErrorStatus(null);
     setLoading(true);
     try {
-      if (isEditing && editingReservationId) {
-        await deleteReservation(user.uid, editingReservationId);
-      }
       // forceRefresh: true でトークン期限切れ時も再取得を試みる
       const idToken = await user.getIdToken(true);
       if (!idToken?.trim()) {
@@ -59,16 +57,25 @@ function ReserveConfirmPage() {
         setErrorStatus(401);
         return;
       }
+      // 変更時はアトミック性を担保: 新予約を作成してから旧予約をキャンセル
+      // → 新規作成が失敗しても旧予約が失われない
+      // → キャンセルはバックエンド API 経由で booked_slots も解放される
       await createReservationApi(idToken, payload);
+      if (isEditing && editingReservationId) {
+        try {
+          await cancelReservationApi(idToken, editingReservationId);
+        } catch (delErr) {
+          if (import.meta.env.DEV) {
+            console.warn('[予約変更] 旧予約の削除に失敗しましたが、新予約は作成済みです', delErr);
+          }
+        }
+      }
       invalidateSlotsCache();
+      invalidateAvailabilityCache();
       setDone(true);
     } catch (err) {
-      if (typeof console !== 'undefined' && console.error) {
-        console.error('[予約確定エラー]', {
-          status: err?.status,
-          detail: err?.detail,
-          message: err?.message,
-        }, err);
+      if (import.meta.env.DEV) {
+        console.error('[予約確定エラー]', { status: err?.status, detail: err?.detail, message: err?.message }, err);
       }
       const is401 = err?.status === 401;
       setErrorStatus(is401 ? 401 : null);
@@ -78,14 +85,16 @@ function ReserveConfirmPage() {
           const freshToken = await user.getIdToken(true);
           if (freshToken?.trim()) {
             await createReservationApi(freshToken, payload);
+            if (isEditing && editingReservationId) {
+              try { await cancelReservationApi(freshToken, editingReservationId); } catch { /* ignore */ }
+            }
             invalidateSlotsCache();
+            invalidateAvailabilityCache();
             setDone(true);
             return;
           }
-        } catch (retryErr) {
-          if (typeof console !== 'undefined' && console.error) {
-            console.error('[予約確定リトライエラー]', retryErr);
-          }
+        } catch {
+          // リトライ失敗
         }
       }
       setError(

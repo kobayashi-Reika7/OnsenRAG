@@ -2,12 +2,15 @@
  * 予約一覧画面（予約確認）
  * users/{uid}/reservations を取得し、カード形式で表示。変更・キャンセル操作を安全に提供。
  */
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
 import Breadcrumb from '../components/Breadcrumb';
-import { getReservationsByUser, deleteReservation } from '../services/reservation';
+import { getReservationsByUser } from '../services/reservation';
+import { cancelReservationApi, invalidateSlotsCache } from '../services/backend';
+import { invalidateAvailabilityCache } from '../services/availability';
 import { logout } from '../services/auth';
+import { getAuth } from 'firebase/auth';
 
 /** date: YYYY-MM-DD, time: HH:mm → 表示用 "2026/02/10 10:30" */
 function formatDateTime(dateStr, timeStr) {
@@ -28,6 +31,43 @@ function isPastReservation(dateStr, timeStr) {
   if (dateStr < todayYmd) return true;
   if (dateStr === todayYmd && timeStr && timeStr <= nowTime) return true;
   return false;
+}
+
+/** キャンセル確認ダイアログ（Escape/バックドロップクリック/フォーカス管理） */
+function CancelDialog({ cancelTarget, cancellingId, onConfirm, onClose }) {
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && !cancellingId) onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    // フォーカスをダイアログ内に移動
+    const firstBtn = dialogRef.current?.querySelector('button');
+    if (firstBtn) firstBtn.focus();
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [cancellingId, onClose]);
+  const handleOverlayClick = (e) => {
+    if (e.target === e.currentTarget && !cancellingId) onClose();
+  };
+  return (
+    <div className="reservation-cancel-overlay" role="dialog" aria-modal="true" aria-labelledby="cancel-dialog-title" onClick={handleOverlayClick}>
+      <div className="reservation-cancel-dialog" ref={dialogRef}>
+        <h2 id="cancel-dialog-title" className="reservation-cancel-dialog-title">キャンセルの確認</h2>
+        <p className="reservation-cancel-dialog-message">
+          この予約をキャンセルしますか？一度キャンセルすると元に戻せません。
+        </p>
+        <p className="reservation-cancel-dialog-summary">{cancelTarget.summary}</p>
+        <div className="reservation-cancel-dialog-actions">
+          <button type="button" className="btn reservation-btn-cancel-confirm" onClick={onConfirm} disabled={cancellingId === cancelTarget.id}>
+            {cancellingId === cancelTarget.id ? '処理中…' : 'キャンセルする'}
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={!!cancellingId}>
+            戻る
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function MyReservationsPage() {
@@ -63,7 +103,13 @@ function MyReservationsPage() {
     setCancellingId(cancelTarget.id);
     setError('');
     try {
-      await deleteReservation(user.uid, cancelTarget.id);
+      // バックエンド API 経由でキャンセル（booked_slots も同時に解放される）
+      const auth = getAuth();
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error('認証情報がありません。再ログインしてください。');
+      await cancelReservationApi(idToken, cancelTarget.id);
+      invalidateSlotsCache();
+      invalidateAvailabilityCache();
       setCancelTarget(null);
       setSuccessMessage('予約をキャンセルしました。');
       fetchReservations();
@@ -211,35 +257,14 @@ function MyReservationsPage() {
         </button>
       </div>
 
-      {/* キャンセル確認モーダル */}
+      {/* キャンセル確認モーダル（Escape / バックドロップクリック対応） */}
       {cancelTarget && (
-        <div className="reservation-cancel-overlay" role="dialog" aria-modal="true" aria-labelledby="cancel-dialog-title">
-          <div className="reservation-cancel-dialog">
-            <h2 id="cancel-dialog-title" className="reservation-cancel-dialog-title">キャンセルの確認</h2>
-            <p className="reservation-cancel-dialog-message">
-              この予約をキャンセルしますか？一度キャンセルすると元に戻せません。
-            </p>
-            <p className="reservation-cancel-dialog-summary">{cancelTarget.summary}</p>
-            <div className="reservation-cancel-dialog-actions">
-              <button
-                type="button"
-                className="btn reservation-btn-cancel-confirm"
-                onClick={handleCancelConfirm}
-                disabled={cancellingId === cancelTarget.id}
-              >
-                {cancellingId === cancelTarget.id ? '処理中…' : 'キャンセルする'}
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setCancelTarget(null)}
-                disabled={!!cancellingId}
-              >
-                戻る
-              </button>
-            </div>
-          </div>
-        </div>
+        <CancelDialog
+          cancelTarget={cancelTarget}
+          cancellingId={cancellingId}
+          onConfirm={handleCancelConfirm}
+          onClose={() => setCancelTarget(null)}
+        />
       )}
     </div>
   );

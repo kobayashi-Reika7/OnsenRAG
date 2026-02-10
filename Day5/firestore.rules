@@ -1,13 +1,23 @@
 rules_version = '2';
 // 予約アプリ用 Firestore セキュリティルール
 // パス: users/{uid}/reservations/{reservationId}
-// 認証済みユーザーは自分の uid 配下のみ書き込み可能
-// 読取は認証済みなら全ユーザー可（collectionGroup で「予約済み担当医」照合用）
+// 認証済みユーザーは自分の uid 配下のみ読み書き可能
+// 空き枠判定はバックエンド（Admin SDK: ルールをバイパス）が行うため、
+// クライアントからの cross-user read は不要
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{uid}/reservations/{reservationId} {
+      allow read, create, delete, update: if request.auth != null && request.auth.uid == uid;
+    }
+    // doctors コレクション（医師マスタ）は認証済みユーザーに読み取り許可
+    match /doctors/{doctorId} {
       allow read: if request.auth != null;
-      allow create, delete, update: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+    // booked_slots コレクション（ダブルブッキング防止用）
+    // クライアントからの読み書きは不可（バックエンド Admin SDK のみが操作する）
+    match /booked_slots/{slotId} {
+      allow read, write: if false;
     }
   }
 }

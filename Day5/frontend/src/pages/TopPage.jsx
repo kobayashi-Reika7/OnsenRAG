@@ -6,7 +6,6 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
 import DepartmentListSelector from '../components/DepartmentListSelector';
-import appHero from '../assets/app-hero.svg';
 
 const TOP_IMAGE = '/ヘッダー2.jpg';
 

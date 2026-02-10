@@ -26,9 +26,10 @@ function assertQueryReady({ departmentLabel, date, time }) {
 }
 
 function logAvailability(event, payload) {
-  // 必須ログ: 取得開始 / クエリ条件 / 取得結果 / エラー内容
-  // eslint-disable-next-line no-console
-  console.log(`[availability] ${event}`, payload ?? '');
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.log(`[availability] ${event}`, payload ?? '');
+  }
 }
 
 /**
@@ -97,13 +98,18 @@ function setCached(key, data) {
   availabilityCache.set(key, { at: Date.now(), data });
 }
 
+/** 予約確定・キャンセル後にキャッシュを無効化する */
+export function invalidateAvailabilityCache() {
+  availabilityCache.clear();
+}
+
 /**
  * 指定した診療科・日付について、全時間枠の空き状況を返す。祝日・理由はバックエンドのレスポンスのみ使用（フロントで判定しない）。
  * @param {string} departmentLabel - 診療科の表示名（その診療科のみ対象）
  * @param {string} date - YYYY-MM-DD
  * @returns {Promise<{ timeSlots: string[], availableDoctorByTime: Record<string, { id: string, name: string } | null>, isHoliday?: boolean, reason?: string | null }>}
  */
-export async function getDepartmentAvailabilityForDate(departmentLabel, date) {
+export async function getDepartmentAvailabilityForDate(departmentLabel, date, idToken) {
   const timeSlots = getTimeSlots();
   const availableDoctorByTime = {};
   if (!departmentLabel || !date) {
@@ -123,7 +129,7 @@ export async function getDepartmentAvailabilityForDate(departmentLabel, date) {
   logAvailability('start:getDepartmentAvailabilityForDate', { departmentLabel, date });
   try {
     const { getSlots } = await import('./backend');
-    const result = await getSlots(departmentLabel, date);
+    const result = await getSlots(departmentLabel, date, idToken);
     const slots = result.slots ?? [];
     timeSlots.forEach((t) => {
       const slot = slots.find((s) => s.time === t);

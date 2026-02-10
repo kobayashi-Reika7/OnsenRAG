@@ -2,7 +2,7 @@
 Pydantic モデル（ユーザー・予約）
 認証は Firebase に一本化するため、バックエンドは ID トークン検証後のユーザー情報のみ扱う
 """
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
@@ -13,12 +13,6 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-class SyncUserBody(BaseModel):
-    """フロントからユーザー同期するボディ（任意）"""
-    uid: str
-    email: str
 
 
 class SlotItem(BaseModel):
@@ -37,10 +31,11 @@ class AvailabilityForDateResponse(BaseModel):
 
 
 class CreateReservationBody(BaseModel):
-    """予約作成（診療科・日・時間のみ。担当医はバックエンドで自動割当）"""
-    department: str
-    date: str
-    time: str
+    """予約作成（診療科・日・時間・種別。担当医はバックエンドで自動割当）"""
+    department: str = Field(..., min_length=1, max_length=100)
+    date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    time: str = Field(..., pattern=r"^\d{2}:\d{2}$")
+    purpose: str = Field(default="", max_length=20)  # 初診/再診
 
 
 class ReservationCreated(BaseModel):
