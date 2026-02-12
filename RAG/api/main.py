@@ -79,12 +79,14 @@ class AnswerResponse(BaseModel):
     回答レスポンスのデータ構造
 
     Attributes:
-        answer: RAGが生成した回答テキスト
+        answer: RAGが生成した回答テキスト（回答+根拠チャンクID形式）
         sources: 参照したチャンクの内容（根拠の可視化用）
+        chunk_ids: 参照したチャンクIDリスト（根拠のトレーサビリティ用）
         needs_escalation: 担当者へのおつなぎを提案するか（サポートボット時）
     """
     answer: str
     sources: list[str] = []
+    chunk_ids: list[str] = []
     needs_escalation: bool = False
 
 
@@ -199,12 +201,14 @@ async def ask_question(request: QuestionRequest):
                 return AnswerResponse(
                     answer=resp.answer,
                     sources=resp.sources,
+                    chunk_ids=resp.chunk_ids,
                     needs_escalation=resp.needs_escalation,
                 )
 
             # 従来のRAG直接呼び出し（サポートボット未初期化時）
             result = await _run_query_sync(request.question, k=3)
             sources = []
+            chunk_ids = result.get("chunk_ids", [])
             if "source_documents" in result:
                 sources = [doc.page_content[:200] for doc in result["source_documents"]]
             answer = result["result"]
@@ -213,6 +217,7 @@ async def ask_question(request: QuestionRequest):
             return AnswerResponse(
                 answer=answer.strip(),
                 sources=sources,
+                chunk_ids=chunk_ids,
             )
 
         except asyncio.TimeoutError as error:

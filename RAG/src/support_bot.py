@@ -19,10 +19,13 @@ class SupportResponse:
     answer: str
     needs_escalation: bool  # 担当者へのおつなぎを提案するか
     sources: list[str] = None
+    chunk_ids: list[str] = None
 
     def __post_init__(self):
         if self.sources is None:
             self.sources = []
+        if self.chunk_ids is None:
+            self.chunk_ids = []
 
 
 class SupportBot:
@@ -82,6 +85,7 @@ class SupportBot:
                     answer=faq_answer,
                     needs_escalation=False,
                     sources=[],
+                    chunk_ids=[],
                 )
 
         # RAGで回答生成
@@ -93,6 +97,7 @@ class SupportBot:
                        "担当者へおつなぎしますか？",
                 needs_escalation=True,
                 sources=[],
+                chunk_ids=[],
             )
 
         answer = result.get("result", "")
@@ -100,6 +105,7 @@ class SupportBot:
             answer = str(answer.content) if answer else ""
 
         sources = []
+        chunk_ids = result.get("chunk_ids", [])
         if "source_documents" in result:
             sources = [
                 doc.page_content[:200]
@@ -119,4 +125,5 @@ class SupportBot:
             answer=answer.strip(),
             needs_escalation=needs_escalation,
             sources=sources,
+            chunk_ids=chunk_ids,
         )

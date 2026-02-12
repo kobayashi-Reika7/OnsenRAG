@@ -25,7 +25,6 @@ from src.text_splitter_utils import (
     DEFAULT_CHUNK_OVERLAP,
 )
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_classic.chains import RetrievalQA
 from langchain_core.prompts import PromptTemplate
 from langchain_core.documents import Document
 
@@ -377,6 +376,33 @@ class OnsenRAG:
         )
         print(f"[OK] Total {len(all_documents)} chunks loaded into Vector DB")
 
+    # RAG専用プロンプトテンプレート（チャンクID付き・根拠明示形式）
+    PROMPT_TEMPLATE = """あなたはRAGシステム専用の日本語質問応答アシスタントです。
+以下の【検索結果】に含まれる情報のみを使用して【質問】に回答してください。
+
+【厳守ルール】
+- 検索結果に含まれない情報は一切使用しない
+- 推測・一般論・補足説明は禁止
+- 不明な場合は必ず「該当情報なし」と回答する
+- 回答は指定フォーマットを厳守する
+- 最大300トークン以内で出力する
+
+【検索結果】（チャンクID付き）
+{context}
+
+【質問】
+{question}
+
+【回答フォーマット】
+回答:
+- （簡潔な回答を箇条書きで最大5項目）
+  ※ 各項目は2行以内
+
+根拠チャンクID:
+- chunk_id_1
+- chunk_id_2
+"""
+
     def query(self, question: str, k: int = 3) -> dict:
         """
         温泉に関する質問に対してRAGで回答を生成
@@ -389,56 +415,46 @@ class OnsenRAG:
         Returns:
             dict: 回答結果
                 - "result": LLMが生成した回答テキスト
+                - "source_documents": 参照したDocumentリスト
+                - "chunk_ids": 参照したチャンクIDリスト
         """
         if self.vectorstore is None:
             raise ValueError(
                 "データが未読み込みです。先にload_data()を実行してください。"
             )
 
-        # 温泉回答に特化したカスタムプロンプト
-        # 参考情報のみ使用・推測禁止・根拠明示・回答形式を指示
-        template = """
-この情報の内容に基づいて質問に答えてください。
-推測や記載のない情報は答えないでください。
+        retriever = self.vectorstore.as_retriever(search_kwargs={"k": k})
+        docs = retriever.invoke(question)
 
-【参考情報】
-{context}
+        # チャンクID付きでコンテキストを構築
+        context_parts = []
+        chunk_ids = []
+        for doc in docs:
+            cid = doc.metadata.get("chunk_id", "")
+            if not cid and "source" in doc.metadata:
+                # テキスト由来のチャンクは source を ID 代わりに
+                cid = doc.metadata.get("source", "unknown").replace(".", "_")
+            if not cid:
+                cid = f"doc_{len(context_parts) + 1}"
+            chunk_ids.append(cid)
+            context_parts.append(f"chunk_id: {cid}\n{doc.page_content}")
 
-【質問】
-{question}
-
-【厳守事項】
-・参考情報に含まれない事実や一般知識を使用しない
-・推測や想像は行わない
-・参考情報から判断できない場合は「参考情報からは分かりません」と回答する
-・回答は簡潔で分かりやすい日本語にする
-
-【回答形式】
-・結論を最初に述べる
-・必要に応じて箇条書きを使用
-・根拠となる参考情報の要点を明示する
-
-【回答】
-"""
+        context = "\n\n".join(context_parts) if context_parts else "（検索結果なし）"
 
         prompt = PromptTemplate(
-            template=template,
+            template=self.PROMPT_TEMPLATE,
             input_variables=["context", "question"]
         )
+        chain = prompt | self.llm
 
-        # QAチェーン作成と実行
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=self.llm,
-            chain_type="stuff",
-            retriever=self.vectorstore.as_retriever(
-                search_kwargs={"k": k}
-            ),
-            chain_type_kwargs={"prompt": prompt},
-            return_source_documents=True
-        )
+        response = chain.invoke({"context": context, "question": question})
+        answer = response.content if hasattr(response, "content") else str(response)
 
-        result = qa_chain({"query": question})
-        return result
+        return {
+            "result": answer.strip(),
+            "source_documents": docs,
+            "chunk_ids": chunk_ids,
+        }
 
     def search_chunks(self, question: str, k: int = 3) -> list:
         """
