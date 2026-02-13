@@ -1,0 +1,122 @@
+{
+  "description": "温泉RAG評価用サンプル質問集 - 各質問に正解チャンクと評価ポイントを設定",
+  "questions": [
+    {
+      "id": 1,
+      "category": "基本質問",
+      "question": "温泉とは何ですか？",
+      "expected_chunk": "■ 温泉とは",
+      "evaluation_point": "定義がそのまま含まれている",
+      "expected_answer_keywords": ["地中から湧き出る", "温度や成分", "一定基準"]
+    },
+    {
+      "id": 2,
+      "category": "基本質問",
+      "question": "温泉の基本マナーを教えてください",
+      "expected_chunk": "■ 温泉の基本マナー",
+      "evaluation_point": "マナーの複数項目が含まれている",
+      "expected_answer_keywords": ["かけ湯", "タオル", "浴槽"]
+    },
+    {
+      "id": 3,
+      "category": "基本質問",
+      "question": "日帰り入浴はできますか？",
+      "expected_chunk": "■ 日帰り入浴について",
+      "evaluation_point": "日帰り入浴の可否と条件が含まれている",
+      "expected_answer_keywords": ["日帰り入浴が可能", "営業時間", "料金"]
+    },
+    {
+      "id": 4,
+      "category": "泉質に関する質問",
+      "question": "美肌の湯と呼ばれる泉質は？",
+      "expected_chunk": "■ 炭酸水素塩泉",
+      "evaluation_point": "美肌という表現が明示されている",
+      "expected_answer_keywords": ["炭酸水素塩泉", "美肌の湯", "角質"]
+    },
+    {
+      "id": 5,
+      "category": "泉質に関する質問",
+      "question": "刺激が少ない温泉はどれですか？",
+      "expected_chunk": "■ 単純温泉",
+      "evaluation_point": "明確な特徴説明が含まれている",
+      "expected_answer_keywords": ["単純温泉", "刺激が少なく", "子ども", "高齢者"]
+    },
+    {
+      "id": 6,
+      "category": "泉質に関する質問",
+      "question": "冷え性に向いている泉質は？",
+      "expected_chunk": "■ 塩化物泉",
+      "evaluation_point": "冷え性との関連が明記されている",
+      "expected_answer_keywords": ["塩化物泉", "保温効果", "湯冷めしにくい"]
+    },
+    {
+      "id": 7,
+      "category": "温泉地比較",
+      "question": "草津温泉と箱根温泉の違いは？",
+      "expected_chunk": "■ 草津温泉 + ■ 箱根温泉",
+      "evaluation_point": "両方の温泉地の特徴が含まれている",
+      "expected_answer_keywords": ["酸性泉", "単純温泉", "群馬県", "神奈川県"]
+    },
+    {
+      "id": 8,
+      "category": "温泉地比較",
+      "question": "東京から行きやすい温泉地は？",
+      "expected_chunk": "■ 箱根温泉",
+      "evaluation_point": "アクセス情報が含まれている",
+      "expected_answer_keywords": ["箱根温泉", "東京からアクセスしやすい"]
+    },
+    {
+      "id": 9,
+      "category": "温泉地比較",
+      "question": "湯めぐりを楽しめる温泉地は？",
+      "expected_chunk": "■ 別府温泉",
+      "evaluation_point": "湧出量・多様性の記述が含まれている",
+      "expected_answer_keywords": ["別府温泉", "湯めぐり", "多様な泉質"]
+    },
+    {
+      "id": 10,
+      "category": "条件付き質問",
+      "question": "冬におすすめの温泉地は？",
+      "expected_chunk": "■ 季節ごとの温泉の楽しみ方（冬）+ ■ 草津温泉",
+      "evaluation_point": "季節条件が一致している",
+      "expected_answer_keywords": ["雪景色", "露天風呂", "冬"]
+    },
+    {
+      "id": 11,
+      "category": "条件付き質問",
+      "question": "日帰りで楽しめる温泉地は？",
+      "expected_chunk": "■ 箱根温泉 + ■ 日帰り入浴について",
+      "evaluation_point": "日帰り対応の施設情報が含まれている",
+      "expected_answer_keywords": ["日帰り入浴", "箱根温泉", "草津温泉"]
+    },
+    {
+      "id": 12,
+      "category": "条件付き質問",
+      "question": "長期滞在に向いている温泉地は？",
+      "expected_chunk": "■ 別府温泉",
+      "evaluation_point": "長期滞在の適性が明記されている",
+      "expected_answer_keywords": ["別府温泉", "長期滞在"]
+    },
+    {
+      "id": 13,
+      "category": "マナー・注意点",
+      "question": "タトゥーがあっても入浴できますか？",
+      "expected_chunk": "■ 温泉の基本マナー",
+      "evaluation_point": "タトゥーに関する制限が含まれている",
+      "expected_answer_keywords": ["タトゥー", "制限", "施設によって"]
+    },
+    {
+      "id": 14,
+      "category": "マナー・注意点",
+      "question": "長湯しても大丈夫ですか？",
+      "expected_chunk": "■ 温泉の基本マナー + ■ 単純温泉",
+      "evaluation_point": "長時間入浴のリスクが含まれている",
+      "expected_answer_keywords": ["長時間の入浴", "体に負担", "注意"]
+    }
+  ],
+  "evaluation_criteria": {
+    "accuracy": "正解チャンクを含んでいるか",
+    "noise": "余計なチャンクを混ぜていないか",
+    "hallucination": "存在しない情報を生成していないか（ハルシネーション）"
+  }
+}

@@ -1,0 +1,28 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // conversations - セッションベースの会話履歴
+    match /conversations/{sessionId} {
+      allow read: if true;
+      allow write: if false;  // バックエンド（Admin SDK）からのみ書き込み
+
+      match /messages/{messageId} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+
+    // qa_logs - Q&Aログ（管理者のみ閲覧）
+    match /qa_logs/{logId} {
+      allow read: if false;
+      allow write: if false;  // バックエンド（Admin SDK）からのみ書き込み
+    }
+
+    // デフォルト: すべて拒否
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

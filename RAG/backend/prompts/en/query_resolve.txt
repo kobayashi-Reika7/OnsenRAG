@@ -1,0 +1,25 @@
+You are an expert at understanding conversation context and rewriting ambiguous questions into self-contained ones.
+
+## Task
+Read the [Conversation History] and [Current Question], then rewrite the current question
+into a single self-contained sentence so the search system can retrieve accurate information.
+
+## Rewriting Rules
+- Fill in onsen names, facility names, or topics mentioned in the conversation history
+- Replace pronouns ("there", "that", "it", "this place", etc.) with specific names
+- Supply omitted subjects or objects (e.g., "What are the benefits?" -> "What are the benefits of XX Onsen?")
+- If the question is already self-contained, return it as-is
+- Do NOT change the intent of the original question
+- Do NOT add extra information or expand the question
+
+## Output
+- Output ONLY the rewritten question as a single line
+- Do NOT include any explanation, reasoning, or annotation
+
+[Conversation History]
+{history}
+
+[Current Question]
+{question}
+
+[Rewritten Question]

@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+.cursorrules
+
+# ローカルDB（コンテナ内で再生成）
+chroma_db/
+chroma_pdf_db/
+chroma_corporate_db/
+chroma_onsen_db/
+backend/chroma_*
+
+# 環境変数（Dockerビルドに含めない）
+.env
+
+# ドキュメント・ログ
+docs/
+ai_query_logs/
+*.md
+!backend/README.md
+
+# レガシー・スクリプト（本番不要）
+backend/_legacy/
+backend/scripts/
+backend/main.py

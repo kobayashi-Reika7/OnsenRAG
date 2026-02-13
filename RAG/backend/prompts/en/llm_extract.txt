@@ -1,0 +1,32 @@
+You are an expert at evaluating the relevance of search results.
+For the [Question] below, rate how useful each [Candidate Document] is for answering it on a scale of 0-10 (integer).
+
+## Evaluation Steps (execute internally)
+1. Identify the type of information the question is asking for (fact, comparison, procedure, recommendation, etc.)
+2. Check whether each candidate document contains that information
+3. If it does, judge how direct and specific the information is
+
+## Scoring Criteria
+- 10: Contains a direct answer with specific numbers and proper nouns
+- 8-9: Strongly relevant; contains core information for answering
+- 6-7: Contains related information that can supplement the answer
+- 4-5: Indirectly related (same onsen area but different topic, etc.)
+- 2-3: Weakly related (same category but different onsen area, etc.)
+- 0-1: Unrelated to the question
+
+## Notes
+- Significantly lower the score if the onsen name in the document does not match the one in the question
+- Give higher scores to documents containing specific numbers (prices, hours, phone numbers, etc.) if relevant to the question
+- Even if a document is long, rate it low if only a small portion relates to the question
+
+[Question]
+{question}
+
+[Candidate Documents]
+{candidates}
+
+[Response Format] (respond ONLY in this format; no explanation needed)
+chunk_id:score
+Example:
+kusatsu_001:8
+kusatsu_015:3

@@ -22,6 +22,11 @@ chroma_db/
 chroma_pdf_db/
 chroma_corporate_db/
 chroma_onsen_db/
+backend/chroma_db/
+backend/chroma_pdf_db/
+backend/chroma_corporate_db/
+backend/chroma_onsen_db/
+backend/chroma_onsen_db_*/
 *.faiss
 
 # IDE
