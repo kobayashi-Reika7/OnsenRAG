@@ -472,23 +472,23 @@ class OnsenRAG:
         self,
         question: str,
         documents: list[Document],
-        top_k: int = 3,
-    ) -> list[Document]:
+        top_k: int = None,
+    ) -> list[tuple[Document, float]]:
         """
-        CrossEncoderで文書を再ランキングし、上位top_k件を返す。
+        ステップ1: 類似度検索結果をCrossEncoderでスコアリング
 
         なぜ必要か：
         - 初期検索（Bi-Encoder / BM25）は高速だが精度がやや劣る
         - CrossEncoderはクエリと文書のペアを直接比較するため高精度
-        - 初期検索で多めに取得 → Re-rankingで絞る戦略が精度向上に有効
+        - スコアを保持して後段のLLM候補抽出・最終選択で活用する
 
         Args:
             question: ユーザーの質問文
             documents: 初期検索で取得した文書リスト
-            top_k: 返す文書の最大数
+            top_k: 返す文書の最大数（Noneで全件返す）
 
         Returns:
-            list[Document]: スコア上位top_k件のドキュメント
+            list[tuple[Document, float]]: (文書, CrossEncoderスコア)のリスト（スコア降順）
         """
         if not documents:
             return []
@@ -504,44 +504,225 @@ class OnsenRAG:
             reverse=True,
         )
 
-        # 上位top_k件を採用
-        reranked = doc_score_pairs[:top_k]
+        # top_k指定があれば上位のみ返す
+        if top_k is not None:
+            doc_score_pairs = list(doc_score_pairs)[:top_k]
 
-        print(f"[RERANK] {len(documents)}件 → 上位{len(reranked)}件を採用")
-        for i, (doc, score) in enumerate(reranked):
+        result = list(doc_score_pairs)
+        print(f"[RERANK] {len(documents)}件をCrossEncoderでスコアリング → {len(result)}件")
+        for i, (doc, score) in enumerate(result[:5]):
             cid = doc.metadata.get("chunk_id", "?")
-            print(f"  [{i+1}] score={score:.4f} chunk_id={cid}")
+            print(f"  [{i+1}] CE_score={score:.4f} chunk_id={cid}")
 
-        return [doc for doc, _ in reranked]
+        return result
 
-    def _hybrid_search(self, question: str, k: int = 3) -> list[Document]:
+    # LLM候補抽出用プロンプト
+    # 各文書の関連度を0〜10で評価し、上位を選定する
+    LLM_EXTRACT_PROMPT = """あなたは検索結果の関連度を評価する専門家です。
+以下の【質問】に対して、各【候補文書】がどれだけ関連しているかを0〜10の整数で評価してください。
+
+【評価基準】
+- 10: 質問に対する直接的な回答が含まれている
+- 7-9: 質問に強く関連する情報が含まれている
+- 4-6: 部分的に関連する情報がある
+- 1-3: ほぼ関連しない
+- 0: 完全に無関連
+
+【質問】
+{question}
+
+【候補文書】
+{candidates}
+
+【回答フォーマット】（必ずこの形式で回答）
+chunk_id:スコア
+例:
+kusatsu_001:8
+kusatsu_015:3
+"""
+
+    def _llm_extract_candidates(
+        self,
+        question: str,
+        scored_docs: list[tuple[Document, float]],
+        top_k: int = 5,
+    ) -> list[tuple[Document, float, float]]:
         """
-        ハイブリッド検索 + Re-ranking パイプライン
+        ステップ2: LLMで各候補文書の関連度を評価し、上位top_k件を抽出
 
-        処理の流れ：
-          1. セマンティック検索（initial_k件） + BM25キーワード検索（initial_k件）
-          2. RRF（Reciprocal Rank Fusion）で両結果を統合
-          3. CrossEncoderで再スコアリング（Re-ranking）
-          4. 上位final_k件のみ返す
-
-        なぜこのパイプラインか：
-        - セマンティック検索: 意味は理解するが、固有名詞（店名・施設名）に弱い
-        - BM25キーワード検索: 固有名詞に強いが、類義語・言い換えに弱い
-        - RRF: 両方の結果を重み付きで統合し、互いの弱点を補完
-        - Re-ranking: 統合結果をCrossEncoderで高精度に再評価し、最終精度を向上
+        なぜLLM評価が有効か：
+        - CrossEncoderは汎用的な文書関連度を測定するが、質問の意図を深く理解しない
+        - LLMは質問の意図を理解し、「本当に回答に使える情報か」を判断できる
+        - 例: 「草津のカフェ」→ CrossEncoderは"草津"を含む全文書を高スコアにするが、
+          LLMは「カフェ情報」を含む文書のみを高く評価する
 
         Args:
             question: ユーザーの質問文
-            k: 最終的に返す検索結果の件数（Re-ranking後の採用数）
+            scored_docs: (文書, CrossEncoderスコア)のリスト
+            top_k: LLM評価後に返す上位件数
 
         Returns:
-            list[Document]: Re-ranking後の上位k件のドキュメント
+            list[tuple[Document, float, float]]:
+                (文書, CrossEncoderスコア, LLMスコア)のリスト（LLMスコア降順）
+        """
+        if not scored_docs:
+            return []
+
+        # 候補文書をフォーマット
+        candidates_text = ""
+        doc_map = {}  # chunk_id → (Document, CE_score) のマップ
+        for i, (doc, ce_score) in enumerate(scored_docs):
+            cid = doc.metadata.get("chunk_id", f"doc_{i+1}")
+            # LLMに送るコンテキスト（長すぎる場合は切り詰め）
+            content = doc.page_content[:300]
+            candidates_text += f"\n[{cid}]\n{content}\n"
+            doc_map[cid] = (doc, ce_score)
+
+        # LLMに候補評価を依頼
+        prompt = PromptTemplate(
+            template=self.LLM_EXTRACT_PROMPT,
+            input_variables=["question", "candidates"]
+        )
+        chain = prompt | self.llm
+
+        try:
+            response = chain.invoke({
+                "question": question,
+                "candidates": candidates_text,
+            })
+            response_text = response.content if hasattr(response, "content") else str(response)
+        except Exception as e:
+            # LLM呼び出し失敗時はCrossEncoderスコアのみで上位を返す
+            print(f"[LLM_EXTRACT] LLM評価失敗、CEスコアで代替: {str(e)[:80]}")
+            return [
+                (doc, ce_score, 0.0)
+                for doc, ce_score in scored_docs[:top_k]
+            ]
+
+        # LLMのレスポンスからスコアを解析
+        # フォーマット: "chunk_id:スコア" の各行をパース
+        llm_scores = {}
+        for line in response_text.strip().split("\n"):
+            line = line.strip()
+            if ":" not in line:
+                continue
+            parts = line.rsplit(":", 1)
+            if len(parts) != 2:
+                continue
+            cid_part = parts[0].strip()
+            try:
+                score_val = float(parts[1].strip())
+                # 0〜10の範囲にクリップ
+                score_val = max(0.0, min(10.0, score_val))
+                llm_scores[cid_part] = score_val
+            except ValueError:
+                continue
+
+        # (Document, CEスコア, LLMスコア)を構築
+        results = []
+        for cid, (doc, ce_score) in doc_map.items():
+            llm_score = llm_scores.get(cid, 0.0)
+            results.append((doc, ce_score, llm_score))
+
+        # LLMスコア降順でソートし、上位top_k件を返す
+        results.sort(key=lambda x: x[2], reverse=True)
+        results = results[:top_k]
+
+        print(f"[LLM_EXTRACT] {len(scored_docs)}件 → LLM評価で上位{len(results)}件を抽出")
+        for i, (doc, ce_score, llm_score) in enumerate(results):
+            cid = doc.metadata.get("chunk_id", "?")
+            print(f"  [{i+1}] LLM={llm_score:.0f}/10 CE={ce_score:.4f} chunk_id={cid}")
+
+        return results
+
+    def _final_selection(
+        self,
+        candidates: list[tuple[Document, float, float]],
+        top_k: int = 3,
+        ce_weight: float = 0.4,
+        llm_weight: float = 0.6,
+    ) -> list[Document]:
+        """
+        ステップ3: CrossEncoderスコアとLLMスコアを統合し、最終的な上位文書を選定
+
+        スコア統合の計算式：
+          final_score = ce_weight * normalize(CE_score) + llm_weight * normalize(LLM_score)
+
+        なぜ統合するのか：
+        - CrossEncoder: 文書レベルの汎用的な関連度（固有名詞や文体の一致に強い）
+        - LLM: 質問の意図を理解した上での関連度（回答に使える情報かを判断）
+        - 両方のスコアを統合することで、最も適切な文書を選定できる
+
+        Args:
+            candidates: (文書, CrossEncoderスコア, LLMスコア)のリスト
+            top_k: 最終的に返す件数
+            ce_weight: CrossEncoderスコアの重み（デフォルト0.4）
+            llm_weight: LLMスコアの重み（デフォルト0.6）
+
+        Returns:
+            list[Document]: 最終選定された上位top_k件のドキュメント
+        """
+        if not candidates:
+            return []
+
+        # CrossEncoderスコアを0〜1に正規化
+        ce_scores = [ce for _, ce, _ in candidates]
+        ce_min, ce_max = min(ce_scores), max(ce_scores)
+        ce_range = ce_max - ce_min if ce_max != ce_min else 1.0
+
+        # LLMスコアを0〜1に正規化（元は0〜10）
+        # 統合スコアを計算
+        final_scored = []
+        for doc, ce_score, llm_score in candidates:
+            ce_norm = (ce_score - ce_min) / ce_range
+            llm_norm = llm_score / 10.0
+            final_score = ce_weight * ce_norm + llm_weight * llm_norm
+            final_scored.append((doc, final_score, ce_score, llm_score))
+
+        # 統合スコア降順でソート
+        final_scored.sort(key=lambda x: x[1], reverse=True)
+        top_results = final_scored[:top_k]
+
+        print(f"[FINAL] スコア統合（CE×{ce_weight} + LLM×{llm_weight}）→ 上位{len(top_results)}件を最終選定")
+        for i, (doc, final, ce, llm) in enumerate(top_results):
+            cid = doc.metadata.get("chunk_id", "?")
+            print(f"  [{i+1}] final={final:.4f} (CE={ce:.4f} LLM={llm:.0f}/10) chunk_id={cid}")
+
+        return [doc for doc, _, _, _ in top_results]
+
+    def _hybrid_search(self, question: str, k: int = 3) -> list[Document]:
+        """
+        3段階検索パイプライン：類似度検索・スコアリング → LLM候補抽出 → 最終選択
+
+        処理の流れ：
+          0. 温泉地フィルタ（質問から地名検出 → 該当チャンクのみ対象）
+          1. 類似度検索・スコアリング
+             - セマンティック検索（initial_k件）+ BM25キーワード検索（initial_k件）
+             - RRF（Reciprocal Rank Fusion）で統合
+             - CrossEncoderで全候補をスコアリング
+          2. LLM候補抽出（上位5件）
+             - LLMが各候補の関連度を0〜10で評価
+             - 質問の意図を理解した上で本当に有用な文書を選定
+          3. 最終選択（スコア統合）
+             - CrossEncoderスコア × 0.4 + LLMスコア × 0.6 で統合
+             - 上位k件を最終回答用に選定
+
+        Args:
+            question: ユーザーの質問文
+            k: 最終的に返す検索結果の件数
+
+        Returns:
+            list[Document]: 3段階選定を経た上位k件のドキュメント
         """
         # 温泉地名を検出してフィルタリング条件を決定
         location = self._detect_location(question)
 
-        # 初期検索は多めに取得（Re-rankingで絞るため）
+        # 初期検索は多めに取得（後段で絞るため）
         search_k = self.initial_k
+
+        # ========================================
+        # ステップ1: 類似度検索、スコアリング
+        # ========================================
 
         # --- セマンティック検索（ベクトル類似度） ---
         semantic_kwargs = {"k": search_k}
@@ -558,7 +739,6 @@ class OnsenRAG:
         semantic_docs = vector_retriever.invoke(question)
 
         # --- BM25キーワード検索（単語一致度） ---
-        # 温泉地フィルタリングが必要な場合、対象ドキュメントを絞り込む
         bm25_target_docs = self.documents
         if location:
             bm25_target_docs = [
@@ -566,34 +746,29 @@ class OnsenRAG:
                 if doc.metadata.get("location") in (location, "onsen")
             ]
 
-        # BM25検索の実行（対象ドキュメントが空の場合はスキップ）
         bm25_docs = []
         if bm25_target_docs:
             bm25_retriever = BM25Retriever.from_documents(bm25_target_docs)
             bm25_retriever.k = search_k
             bm25_docs = bm25_retriever.invoke(question)
 
-        # --- RRF（Reciprocal Rank Fusion）で結果を統合 ---
-        # 各ドキュメントのスコアを page_content をキーにして集計
-        RRF_K = 60  # RRF標準定数
-        doc_scores = {}  # key: page_content, value: 累積スコア
-        doc_map = {}     # key: page_content, value: Document
+        # --- RRF（Reciprocal Rank Fusion）で統合 ---
+        RRF_K = 60
+        doc_scores = {}
+        doc_map = {}
 
-        # セマンティック検索結果のスコア計算
         for rank, doc in enumerate(semantic_docs):
             content = doc.page_content
             score = self.semantic_weight / (rank + RRF_K)
             doc_scores[content] = doc_scores.get(content, 0) + score
             doc_map[content] = doc
 
-        # BM25検索結果のスコア計算
         for rank, doc in enumerate(bm25_docs):
             content = doc.page_content
             score = self.keyword_weight / (rank + RRF_K)
             doc_scores[content] = doc_scores.get(content, 0) + score
             doc_map[content] = doc
 
-        # スコア降順でソートし、RRF統合結果を取得
         sorted_contents = sorted(
             doc_scores.keys(),
             key=lambda c: doc_scores[c],
@@ -602,13 +777,24 @@ class OnsenRAG:
         rrf_results = [doc_map[c] for c in sorted_contents]
 
         loc_label = f"location={location} | " if location else ""
-        print(f"[HYBRID] {loc_label}"
+        print(f"[STEP1] 類似度検索 {loc_label}"
               f"semantic={len(semantic_docs)}件 + BM25={len(bm25_docs)}件 "
               f"→ RRF統合={len(rrf_results)}件")
 
-        # --- Re-ranking（CrossEncoderで高精度再評価） ---
-        # RRF統合結果をCrossEncoderで再スコアリングし、上位k件のみ返す
-        final_results = self._rerank(question, rrf_results, top_k=k)
+        # --- CrossEncoderでスコアリング ---
+        scored_docs = self._rerank(question, rrf_results)
+
+        # ========================================
+        # ステップ2: LLM候補抽出（上位5件）
+        # ========================================
+        llm_candidates = self._llm_extract_candidates(
+            question, scored_docs, top_k=self.final_k + 2
+        )
+
+        # ========================================
+        # ステップ3: 最終選択（スコア統合）
+        # ========================================
+        final_results = self._final_selection(llm_candidates, top_k=k)
 
         return final_results
 
