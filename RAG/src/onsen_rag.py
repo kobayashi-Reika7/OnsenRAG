@@ -28,6 +28,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.prompts import PromptTemplate
 from langchain_core.documents import Document
+from sentence_transformers import CrossEncoder
 
 # .envファイルから環境変数を読み込む
 load_dotenv()
@@ -86,11 +87,17 @@ class OnsenRAG:
         print(result["result"])
     """
 
+    # CrossEncoderモデル名（軽量で高速なモデル）
+    # クエリと文書のペアを直接比較し、関連度を高精度に計算する
+    DEFAULT_CROSS_ENCODER = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
     def __init__(
         self,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
         semantic_weight: float = 0.5,
+        initial_k: int = 10,
+        final_k: int = 3,
     ):
         """
         OnsenRAGの初期化
@@ -101,6 +108,11 @@ class OnsenRAG:
             semantic_weight: ハイブリッド検索でのセマンティック検索の重み（0.0〜1.0）
                             デフォルト0.5（セマンティックとキーワードを同等に扱う）
                             0.7 → セマンティック重視、0.3 → キーワード重視
+            initial_k: 初期検索で取得する件数（多めに取ってRe-rankingで絞る）
+            final_k: Re-ranking後に最終採用する件数
+
+        検索パイプライン:
+          質問 → ハイブリッド検索(initial_k件) → Re-ranking(CrossEncoder) → 上位final_k件 → LLM回答
 
         トークンベース管理の理由：
         - LLMのコンテキスト制限はトークン数で表現される
@@ -114,10 +126,20 @@ class OnsenRAG:
         self.semantic_weight = semantic_weight
         self.keyword_weight = 1.0 - semantic_weight
 
+        # Re-ranking用の初期検索件数 / 最終採用件数
+        self.initial_k = initial_k
+        self.final_k = final_k
+
         # 日本語対応Embeddingモデル
         self.embeddings = HuggingFaceEmbeddings(
             model_name="intfloat/multilingual-e5-base"
         )
+
+        # CrossEncoderモデル（Re-ranking用）
+        # Bi-Encoderより低速だが、クエリと文書のペアを直接比較するため高精度
+        print("[INIT] CrossEncoder loading...")
+        self.cross_encoder = CrossEncoder(self.DEFAULT_CROSS_ENCODER)
+        print(f"  CrossEncoder: {self.DEFAULT_CROSS_ENCODER}")
 
         # ベクトルストア（セマンティック検索用）
         self.vectorstore = None
@@ -446,31 +468,83 @@ class OnsenRAG:
             return detected[0]
         return None
 
-    def _hybrid_search(self, question: str, k: int = 3) -> list[Document]:
+    def _rerank(
+        self,
+        question: str,
+        documents: list[Document],
+        top_k: int = 3,
+    ) -> list[Document]:
         """
-        ハイブリッド検索（セマンティック検索 + BM25キーワード検索）
+        CrossEncoderで文書を再ランキングし、上位top_k件を返す。
 
-        なぜハイブリッドが有効か：
-        - セマンティック検索: 意味は理解するが、固有名詞（店名・施設名）に弱い
-        - BM25キーワード検索: 固有名詞に強いが、類義語・言い換えに弱い
-        - 両方の結果をRRF（Reciprocal Rank Fusion）で統合し、互いの弱点を補完する
-
-        RRFスコア計算式:
-          score = weight / (rank + 60)
-          ※ 60はRRFの標準定数。ランクが低い結果のスコア差を緩やかにする
+        なぜ必要か：
+        - 初期検索（Bi-Encoder / BM25）は高速だが精度がやや劣る
+        - CrossEncoderはクエリと文書のペアを直接比較するため高精度
+        - 初期検索で多めに取得 → Re-rankingで絞る戦略が精度向上に有効
 
         Args:
             question: ユーザーの質問文
-            k: 最終的に返す検索結果の件数
+            documents: 初期検索で取得した文書リスト
+            top_k: 返す文書の最大数
 
         Returns:
-            list[Document]: スコア順にソートされた上位k件のドキュメント
+            list[Document]: スコア上位top_k件のドキュメント
+        """
+        if not documents:
+            return []
+
+        # クエリと各文書のペアを作成し、CrossEncoderでスコアリング
+        pairs = [[question, doc.page_content] for doc in documents]
+        scores = self.cross_encoder.predict(pairs)
+
+        # スコアと文書を紐付け、スコア降順でソート
+        doc_score_pairs = sorted(
+            zip(documents, scores),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+
+        # 上位top_k件を採用
+        reranked = doc_score_pairs[:top_k]
+
+        print(f"[RERANK] {len(documents)}件 → 上位{len(reranked)}件を採用")
+        for i, (doc, score) in enumerate(reranked):
+            cid = doc.metadata.get("chunk_id", "?")
+            print(f"  [{i+1}] score={score:.4f} chunk_id={cid}")
+
+        return [doc for doc, _ in reranked]
+
+    def _hybrid_search(self, question: str, k: int = 3) -> list[Document]:
+        """
+        ハイブリッド検索 + Re-ranking パイプライン
+
+        処理の流れ：
+          1. セマンティック検索（initial_k件） + BM25キーワード検索（initial_k件）
+          2. RRF（Reciprocal Rank Fusion）で両結果を統合
+          3. CrossEncoderで再スコアリング（Re-ranking）
+          4. 上位final_k件のみ返す
+
+        なぜこのパイプラインか：
+        - セマンティック検索: 意味は理解するが、固有名詞（店名・施設名）に弱い
+        - BM25キーワード検索: 固有名詞に強いが、類義語・言い換えに弱い
+        - RRF: 両方の結果を重み付きで統合し、互いの弱点を補完
+        - Re-ranking: 統合結果をCrossEncoderで高精度に再評価し、最終精度を向上
+
+        Args:
+            question: ユーザーの質問文
+            k: 最終的に返す検索結果の件数（Re-ranking後の採用数）
+
+        Returns:
+            list[Document]: Re-ranking後の上位k件のドキュメント
         """
         # 温泉地名を検出してフィルタリング条件を決定
         location = self._detect_location(question)
 
+        # 初期検索は多めに取得（Re-rankingで絞るため）
+        search_k = self.initial_k
+
         # --- セマンティック検索（ベクトル類似度） ---
-        semantic_kwargs = {"k": k}
+        semantic_kwargs = {"k": search_k}
         if location:
             semantic_kwargs["filter"] = {
                 "$or": [
@@ -496,7 +570,7 @@ class OnsenRAG:
         bm25_docs = []
         if bm25_target_docs:
             bm25_retriever = BM25Retriever.from_documents(bm25_target_docs)
-            bm25_retriever.k = k
+            bm25_retriever.k = search_k
             bm25_docs = bm25_retriever.invoke(question)
 
         # --- RRF（Reciprocal Rank Fusion）で結果を統合 ---
@@ -519,24 +593,24 @@ class OnsenRAG:
             doc_scores[content] = doc_scores.get(content, 0) + score
             doc_map[content] = doc
 
-        # スコア降順でソートし、上位k件を返す
+        # スコア降順でソートし、RRF統合結果を取得
         sorted_contents = sorted(
             doc_scores.keys(),
             key=lambda c: doc_scores[c],
             reverse=True,
         )
+        rrf_results = [doc_map[c] for c in sorted_contents]
 
-        results = [doc_map[c] for c in sorted_contents[:k]]
+        loc_label = f"location={location} | " if location else ""
+        print(f"[HYBRID] {loc_label}"
+              f"semantic={len(semantic_docs)}件 + BM25={len(bm25_docs)}件 "
+              f"→ RRF統合={len(rrf_results)}件")
 
-        if location:
-            print(f"[HYBRID] location={location} | "
-                  f"semantic={len(semantic_docs)}件 + BM25={len(bm25_docs)}件 "
-                  f"→ 統合={len(results)}件")
-        else:
-            print(f"[HYBRID] semantic={len(semantic_docs)}件 + "
-                  f"BM25={len(bm25_docs)}件 → 統合={len(results)}件")
+        # --- Re-ranking（CrossEncoderで高精度再評価） ---
+        # RRF統合結果をCrossEncoderで再スコアリングし、上位k件のみ返す
+        final_results = self._rerank(question, rrf_results, top_k=k)
 
-        return results
+        return final_results
 
     # RAG専用プロンプトテンプレート（チャンクID付き・根拠明示形式）
     PROMPT_TEMPLATE = """あなたはRAGシステム専用の日本語質問応答アシスタントです。
