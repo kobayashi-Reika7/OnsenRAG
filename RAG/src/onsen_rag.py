@@ -25,6 +25,7 @@ from src.text_splitter_utils import (
     DEFAULT_CHUNK_OVERLAP,
 )
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.retrievers import BM25Retriever
 from langchain_core.prompts import PromptTemplate
 from langchain_core.documents import Document
 
@@ -89,6 +90,7 @@ class OnsenRAG:
         self,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+        semantic_weight: float = 0.5,
     ):
         """
         OnsenRAGの初期化
@@ -96,6 +98,9 @@ class OnsenRAG:
         Args:
             chunk_size: チャンクの最大トークン数（デフォルト600、general プリセット）
             chunk_overlap: チャンク間の重複トークン数（デフォルト75）
+            semantic_weight: ハイブリッド検索でのセマンティック検索の重み（0.0〜1.0）
+                            デフォルト0.5（セマンティックとキーワードを同等に扱う）
+                            0.7 → セマンティック重視、0.3 → キーワード重視
 
         トークンベース管理の理由：
         - LLMのコンテキスト制限はトークン数で表現される
@@ -105,13 +110,20 @@ class OnsenRAG:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
+        # ハイブリッド検索の重み（セマンティック vs キーワード）
+        self.semantic_weight = semantic_weight
+        self.keyword_weight = 1.0 - semantic_weight
+
         # 日本語対応Embeddingモデル
         self.embeddings = HuggingFaceEmbeddings(
             model_name="intfloat/multilingual-e5-base"
         )
 
-        # ベクトルストア
+        # ベクトルストア（セマンティック検索用）
         self.vectorstore = None
+
+        # 全ドキュメントリスト（BM25キーワード検索用に保持）
+        self.documents = []
 
         # LLMの初期化（Gemini優先 → Groq → OpenAI）
         self.llm = self._init_llm()
@@ -223,13 +235,16 @@ class OnsenRAG:
             safe_preview = preview.encode("ascii", errors="replace").decode()
             print(f"  [{i+1}] {safe_preview}...")
 
+        # BM25キーワード検索用にドキュメントを保持
+        self.documents = splits
+
         # ベクトルDBに保存
         self.vectorstore = Chroma.from_documents(
             documents=splits,
             embedding=self.embeddings
         )
 
-        print(f"\n[OK] Vector DB saved")
+        print(f"\n[OK] Vector DB saved (hybrid search ready)")
 
     def load_json_chunks(
         self,
@@ -301,12 +316,15 @@ class OnsenRAG:
 
         print(f"[LOAD] JSON chunks loaded: {len(documents)}")
 
+        # BM25キーワード検索用にドキュメントを保持
+        self.documents = documents
+
         self.vectorstore = Chroma.from_documents(
             documents=documents,
             embedding=self.embeddings
         )
 
-        print(f"[OK] Vector DB saved")
+        print(f"[OK] Vector DB saved (hybrid search ready)")
 
     def load_from_data_folder(
         self,
@@ -390,11 +408,14 @@ class OnsenRAG:
                 f"data フォルダ（{DATA_DIR}）を確認してください。"
             )
 
+        # BM25キーワード検索用にドキュメントを保持
+        self.documents = all_documents
+
         self.vectorstore = Chroma.from_documents(
             documents=all_documents,
             embedding=self.embeddings,
         )
-        print(f"[OK] Total {len(all_documents)} chunks loaded into Vector DB")
+        print(f"[OK] Total {len(all_documents)} chunks loaded into Vector DB (hybrid search ready)")
 
     def _detect_location(self, question: str) -> str | None:
         """
@@ -424,6 +445,98 @@ class OnsenRAG:
         if len(detected) == 1:
             return detected[0]
         return None
+
+    def _hybrid_search(self, question: str, k: int = 3) -> list[Document]:
+        """
+        ハイブリッド検索（セマンティック検索 + BM25キーワード検索）
+
+        なぜハイブリッドが有効か：
+        - セマンティック検索: 意味は理解するが、固有名詞（店名・施設名）に弱い
+        - BM25キーワード検索: 固有名詞に強いが、類義語・言い換えに弱い
+        - 両方の結果をRRF（Reciprocal Rank Fusion）で統合し、互いの弱点を補完する
+
+        RRFスコア計算式:
+          score = weight / (rank + 60)
+          ※ 60はRRFの標準定数。ランクが低い結果のスコア差を緩やかにする
+
+        Args:
+            question: ユーザーの質問文
+            k: 最終的に返す検索結果の件数
+
+        Returns:
+            list[Document]: スコア順にソートされた上位k件のドキュメント
+        """
+        # 温泉地名を検出してフィルタリング条件を決定
+        location = self._detect_location(question)
+
+        # --- セマンティック検索（ベクトル類似度） ---
+        semantic_kwargs = {"k": k}
+        if location:
+            semantic_kwargs["filter"] = {
+                "$or": [
+                    {"location": {"$eq": location}},
+                    {"location": {"$eq": "onsen"}},
+                ]
+            }
+        vector_retriever = self.vectorstore.as_retriever(
+            search_kwargs=semantic_kwargs
+        )
+        semantic_docs = vector_retriever.invoke(question)
+
+        # --- BM25キーワード検索（単語一致度） ---
+        # 温泉地フィルタリングが必要な場合、対象ドキュメントを絞り込む
+        bm25_target_docs = self.documents
+        if location:
+            bm25_target_docs = [
+                doc for doc in self.documents
+                if doc.metadata.get("location") in (location, "onsen")
+            ]
+
+        # BM25検索の実行（対象ドキュメントが空の場合はスキップ）
+        bm25_docs = []
+        if bm25_target_docs:
+            bm25_retriever = BM25Retriever.from_documents(bm25_target_docs)
+            bm25_retriever.k = k
+            bm25_docs = bm25_retriever.invoke(question)
+
+        # --- RRF（Reciprocal Rank Fusion）で結果を統合 ---
+        # 各ドキュメントのスコアを page_content をキーにして集計
+        RRF_K = 60  # RRF標準定数
+        doc_scores = {}  # key: page_content, value: 累積スコア
+        doc_map = {}     # key: page_content, value: Document
+
+        # セマンティック検索結果のスコア計算
+        for rank, doc in enumerate(semantic_docs):
+            content = doc.page_content
+            score = self.semantic_weight / (rank + RRF_K)
+            doc_scores[content] = doc_scores.get(content, 0) + score
+            doc_map[content] = doc
+
+        # BM25検索結果のスコア計算
+        for rank, doc in enumerate(bm25_docs):
+            content = doc.page_content
+            score = self.keyword_weight / (rank + RRF_K)
+            doc_scores[content] = doc_scores.get(content, 0) + score
+            doc_map[content] = doc
+
+        # スコア降順でソートし、上位k件を返す
+        sorted_contents = sorted(
+            doc_scores.keys(),
+            key=lambda c: doc_scores[c],
+            reverse=True,
+        )
+
+        results = [doc_map[c] for c in sorted_contents[:k]]
+
+        if location:
+            print(f"[HYBRID] location={location} | "
+                  f"semantic={len(semantic_docs)}件 + BM25={len(bm25_docs)}件 "
+                  f"→ 統合={len(results)}件")
+        else:
+            print(f"[HYBRID] semantic={len(semantic_docs)}件 + "
+                  f"BM25={len(bm25_docs)}件 → 統合={len(results)}件")
+
+        return results
 
     # RAG専用プロンプトテンプレート（チャンクID付き・根拠明示形式）
     PROMPT_TEMPLATE = """あなたはRAGシステム専用の日本語質問応答アシスタントです。
@@ -472,22 +585,8 @@ class OnsenRAG:
                 "データが未読み込みです。先にload_data()を実行してください。"
             )
 
-        # 質問文から温泉地名を検出し、該当チャンクのみに絞り込む
-        # 例: "草津のカフェ" → location="kusatsu" → kusatsu_* + onsen_knowledge_* のみ検索
-        location = self._detect_location(question)
-        search_kwargs = {"k": k}
-        if location:
-            # 検出された温泉地 + 温泉基礎知識（onsen）の両方を検索対象にする
-            search_kwargs["filter"] = {
-                "$or": [
-                    {"location": {"$eq": location}},
-                    {"location": {"$eq": "onsen"}},
-                ]
-            }
-            print(f"[FILTER] location={location} で絞り込み検索")
-
-        retriever = self.vectorstore.as_retriever(search_kwargs=search_kwargs)
-        docs = retriever.invoke(question)
+        # ハイブリッド検索（セマンティック + BM25キーワード + 温泉地フィルタ）
+        docs = self._hybrid_search(question, k=k)
 
         # チャンクID付きでコンテキストを構築
         context_parts = []
@@ -536,21 +635,8 @@ class OnsenRAG:
         if self.vectorstore is None:
             raise ValueError("データが未読み込みです。")
 
-        # query と同じ温泉地フィルタリングを適用
-        location = self._detect_location(question)
-        search_kwargs = {"k": k}
-        if location:
-            search_kwargs["filter"] = {
-                "$or": [
-                    {"location": {"$eq": location}},
-                    {"location": {"$eq": "onsen"}},
-                ]
-            }
-
-        retriever = self.vectorstore.as_retriever(
-            search_kwargs=search_kwargs
-        )
-        results = retriever.invoke(question)
+        # ハイブリッド検索（セマンティック + BM25キーワード + 温泉地フィルタ）
+        results = self._hybrid_search(question, k=k)
 
         print(f"\n[SEARCH] Question: 「{question}」")
         print(f"   検索結果: {len(results)}件")
